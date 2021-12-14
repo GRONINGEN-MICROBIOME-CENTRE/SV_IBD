@@ -1,0 +1,158 @@
+---
+title: "Interaction analysis"
+author: "Daoming Wang"
+date: "2021/11/9"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Import
+
+Import packages and functions.
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/All/all_dsv.RData")
+load("01.cleanData/All/all_vsv.RData")
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/all_phen.RData")
+load("01.cleanData/All/all_abun.RData")
+load("01.cleanData/All/msv_pc_cum0.6.RData")
+
+
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+vsv_info<-read.table("01.cleanData/Info/vsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F, quote = "")
+dsv_info<-read.table("01.cleanData/Info/dsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+fmetab_info<-read.csv("01.cleanData/Info/fmetab_info_addIBD.tsv", sep = "\t",header = T, check.names = F,quote = "")
+```
+
+
+## 2 Interaction between IBD and SVs on fecal metabolite levels
+
+### 2.1 Preparation
+
+```{r 2.1}
+if (!dir.exists("10.Interaction_effct")) {dir.create("10.Interaction_effct")}
+if (!dir.exists("10.Interaction_effct/RData")) {dir.create("10.Interaction_effct/RData")}
+
+# ibd
+all_abun_clr<-abundances(x=as.data.frame(na.omit(all_abun)), transform="clr") %>% as.data.frame
+all_abun_clr <- all_abun_clr[match(rownames(all_abun), rownames(all_abun_clr)),]
+rownames(all_abun_clr) <- rownames(all_abun)
+all_covar<-cbind(all_phen,all_abun_clr)
+
+covar <- c("host_Sex", "host_Age", "host_BMI", "Read_count")
+```
+
+
+### 2.2 linear model 1 with interaction term
+
+```{r 2.2}
+# vsv
+vsv_fmetab_interact_adjAbun_res<-lm_btw_mats_interaction_adjAbun(all_fmetab, all_vsv,all_covar,covar,"IBD",c("Y", "X1", "host_Age", "host_BMI", "Read_count"), all_abun_clr, info, 9)
+save(vsv_fmetab_interact_adjAbun_res, file = "10.Interaction_effct/RData/vsv_fmetab_interact_adjAbun_res.RData")
+
+# dsv
+dsv_fmetab_interact_adjAbun_res<-lm_btw_mats_interaction_adjAbun(all_fmetab, all_dsv,all_covar,covar,"IBD",c("Y", "host_Age", "host_BMI", "Read_count"), all_abun_clr, info, 9)
+save(dsv_fmetab_interact_adjAbun_res, file = "10.Interaction_effct/RData/dsv_fmetab_interact_adjAbun_res.RData")
+
+```
+
+### 2.3 linear model 2 with interaction term
+
+```{r 2.3}
+# vsv
+vsv_fmetab_interact_adjAbunPCs_res<-lm_btw_mats_interaction_adjAbunPCs(all_fmetab, all_vsv,all_covar,covar,"IBD",c("Y", "X1","host_Age", "host_BMI", "Read_count"), all_abun_clr,msv_pc_cum0.6, info, 9)
+save(vsv_fmetab_interact_adjAbunPCs_res, file = "10.Interaction_effct/RData/vsv_fmetab_interact_adjAbunPCs_res.RData")
+
+# dsv
+dsv_fmetab_interact_adjAbunPCs_res<-lm_btw_mats_interaction_adjAbunPCs(all_fmetab, all_dsv,all_covar,covar,"IBD",c("Y", "host_Age", "host_BMI", "Read_count"), all_abun_clr,msv_pc_cum0.6, info, 9)
+save(dsv_fmetab_interact_adjAbunPCs_res, file = "10.Interaction_effct/RData/dsv_fmetab_interact_adjAbunPCs_res.RData")
+```
+
+## 3 Summary results
+
+### 3.1 model 1
+
+```{r 3.1}
+load("D:/Others/下载/vsv_fmetab_interact_adjAbun_res.RData")
+
+vsv_fmetab_interact_adjAbun.sig<-vsv_fmetab_interact_adjAbun_res[(vsv_fmetab_interact_adjAbun_res$int.X1xX2.fdr.p < 0.1) &
+                                                                   (!is.na(vsv_fmetab_interact_adjAbun_res$int.X1xX2.fdr.p)) &
+                                                                   (!grepl("X__",vsv_fmetab_interact_adjAbun_res$Y)),]
+load("D:/Others/下载/dsv_fmetab_interact_adjAbun_res.RData")
+
+dsv_fmetab_interact_adjAbun.sig<-dsv_fmetab_interact_adjAbun_res[(dsv_fmetab_interact_adjAbun_res$int.X1xX2.fdr.p < 0.1) &
+                                                                   (!is.na(dsv_fmetab_interact_adjAbun_res$int.X1xX2.fdr.p)) &
+                                                                   (!grepl("X__",dsv_fmetab_interact_adjAbun_res$Y)),]
+```
+
+## 4 Visualization
+
+### 4.1 Example
+
+```{r 4.1}
+
+## Most significant association:Coprococcus.comes.ATCC.27758.2932_2935.2935_2937) and secondary primary BA ratio
+df<-data.frame(phen = all_fmetab$linoleoyl_ethanolamide, 
+               all_covar[,covar],
+               Cohort = all_phen$IBD,
+               sv=all_vsv$`Blautia wexlerae DSM 19850:674_675`,
+               abun = all_abun_clr$`Blautia wexlerae DSM 19850`,
+               msv_pc_cum0.6[,colnames(msv_pc_cum0.6)[grep("Blautia wexlerae DSM 19850",colnames(msv_pc_cum0.6))]]) %>% 
+  na.omit
+df_raw<-df
+df[,c(1,3:5,7:18)] <- apply(df[,c(1,3:5,7:18)], 2, qtrans) %>% as.data.frame
+df_covert<-df
+df_covert$Cohort<-as.factor(df_covert$Cohort)
+df<-df[,-c(6:7)]
+
+df_lm<- summary(lm(phen~.,data = df))
+
+#es_cor<-cor.test(df_lm$residuals, df_covert$sv, method = "spearman")
+text_r<-paste("B.wexlerae:674_675","P=1.74E-8",sep = ", ")
+
+pdf("10.Interaction_effct/Example_B.wexlerae_674_linoleoyl_ethanolamide_interaction.pdf", height = 4, width = 4)
+ggplot(df, aes(df_covert$sv, df_lm$residuals,color = df_covert$Cohort))+
+  geom_point(size = 3,alpha = 0.5)+
+  geom_smooth(aes(df_covert$sv, df_lm$residuals,group = df_covert$Cohort, color = df_covert$Cohort ),method = 'lm', linetype = 'solid')+
+  scale_color_manual(breaks = c(0,1),
+                     labels = c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  ggtitle(text_r)+
+  xlab("Normalized region coverage")+
+  ylab("Residuals of linoleoyl_ethanolamide")+
+  theme_classic2()+
+  theme(legend.position = 'none',
+        plot.title = element_text(hjust = 0.5,size = 10))
+dev.off()
+
+```
+

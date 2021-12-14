@@ -1,0 +1,683 @@
+---
+title: "Clean data"
+author: "Daoming Wang"
+date: "2021/9/29"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Library
+
+```{r 1.1}
+source("functions.R")
+```
+
+### 1.2 Input
+
+```{r 1.2}
+## Metabolome and phenotypes
+all_phen_raw<-read.table("00.rawData/phen/CC_phenos_recoded_v2.txt",
+                         sep = "\t", header = T)
+all_fmetab_raw<-read.table("00.rawData/fmetab/metabolites_raw_no_filtered.txt",
+                                check.names = F)
+ibd_read_raw<-read.table("00.rawData/phen/IBD.read_pair_number.tsv", sep = "\t", header = F)
+lld_read_raw<-read.table("00.rawData/phen/LLD.read_pair_number.tsv", sep = "\t", header = F)
+hmp2_phen_raw<-read.table("00.rawData/phen/key_HMP2_212samples.txt", sep = "\t", header = T)
+
+## IDs
+#ibd_phen<-read.table("../../Resilio/Metab_sync/IBD_metabolites_phenotypes_for_Daoming/CC_phenos_recoded_v2.txt",header = T)
+ibd_id_new<-read.table("00.rawData/phen/rename_IBD.txt", header = T)
+ibd_sample<-read.table("00.rawData/phen/selected_ibd_samples.txt")
+lld_id<-read.table("00.rawData/phen/key_LLD_GoNL_1659samples_v2.0_addSample.txt",sep = "\t", header = T)
+
+## SV
+load("00.rawData/SV/vsgv_ibd.RData")
+load("00.rawData/SV/dsgv_ibd.RData")
+load("00.rawData/SV/vsgv_lld1.RData")
+load("00.rawData/SV/dsgv_lld1.RData")
+load("00.rawData/SV/vsgv_hmp2_baseend.RData")
+load("00.rawData/SV/dsgv_hmp2_baseend.RData")
+
+## SV species abundance
+lld_abun_raw<-read.table("00.rawData/mbio/LLD_SV_species_1135samples.tsv", check.names = F)
+ibd_abun_raw<-read.table("00.rawData/mbio/IBD_SV_species_542samples.tsv", check.names = F)
+
+## SV information
+load("00.rawData/SV_info/info.RData")
+
+taxonomy <- read.csv("00.rawData/database/representatives.genomes.taxonomy.csv",
+                        sep = ",", header = T,check.names = F,stringsAsFactors = F)
+taxonomy[taxonomy == ""]<-"Unknown"
+colnames(taxonomy)[1]<-'X'
+ncbi<-read.csv("00.rawData/database/NCBI_accession.txt", sep = "\t",header = T)
+taxa_length <- read.table("00.rawData/database/Species_genome_size.tsv",
+                        sep = "\t", header = T,check.names = F,stringsAsFactors = F)
+vsv_info<-read.table("00.rawData/SV_info/20210923_full_vsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F, quote = "")
+dsv_info<-read.table("00.rawData/SV_info/20210923_full_dsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+##
+fmetab_info<-read.csv("00.rawData/fmetab_info/fecal_annotation.txt",sep = "\t",header = T,quote = "",check.names = F)
+fmetab_ext_info<-read.csv("00.rawData/fmetab_info/fecal_annotation_extended.txt",sep = "\t",header = T,quote = "",check.names = F)
+```
+
+
+## 2 Clean data
+
+### 2.1 Clean IBD and LLD data
+```{r 2.1}
+lld_id$LLD_bam_id[lld_id$LLD_bam_id=="fece_9002000001328080LL"]<-"fece_9002000001328080"
+
+## Merge tables 
+all_vsv_raw<-rbind(vsgv_ibd, vsgv_lld1)
+all_dsv_raw<-rbind(dsgv_ibd, dsgv_lld1)
+all_abun_raw<-rbind(ibd_abun_raw, lld_abun_raw)
+
+## Merge read count tables
+lld_read_raw$V1<-match(lld_read_raw$V1, str_replace(lld_id$LLD_bam_id,"fece_", "")) %>% lld_id$LLD_GoNL_all_id[.]
+
+ibd_read_raw$Cohort<-"IBD"
+lld_read_raw$Cohort<-"LLD"
+all_read_raw<-rbind(ibd_read_raw,lld_read_raw)
+colnames(all_read_raw)<-c("ID", "Read_count", "Cohort")
+
+## Modify phenotype table
+rownames(all_phen_raw)<-all_phen_raw$ID
+
+all_phen_raw[,c(2,10,13,15:58)][all_phen_raw[,c(2,10,13,15:58)]==1]<-0
+all_phen_raw[,c(2,10,13,15:58)][all_phen_raw[,c(2,10,13,15:58)]==2]<-1
+
+all_phen_raw$host_Sex[all_phen_raw$host_Sex==2]<-0
+all_phen_raw$Cohort<-"LLD"
+all_phen_raw$Cohort[all_phen_raw$IBD==1]<-"IBD"
+
+## correct id
+check_id<-all_phen_raw[,c(1:2)]
+check_id$raw_sv_id<- check_id$ID %in%  rownames(all_dsv_raw) 
+check_id$fmetab_id<-check_id$ID %in% rownames(all_fmetab_raw)
+check_id$rename_id<-check_id$ID %in% ibd_id_new$Classic
+
+check_sv_id<-data.frame(raw_sv_id = rownames(all_dsv_raw))
+check_sv_id$ibd_id_new<-check_sv_id$raw_sv_id %in% ibd_id_new$old
+check_sv_id$final_id<-ibd_id_new$Classic[match(check_sv_id$raw_sv_id,ibd_id_new$old)]
+check_sv_id$final_id[is.na(check_sv_id$final_id)]<-check_sv_id$raw_sv_id[is.na(check_sv_id$final_id)]
+
+rownames(all_vsv_raw) <- check_sv_id$final_id
+rownames(all_dsv_raw) <- check_sv_id$final_id
+rownames(all_abun_raw)<-check_sv_id$final_id
+
+## Final phenotype table
+all_read_raw$final_id <- all_read_raw$ID %>% match(.,check_sv_id$raw_sv_id) %>% check_sv_id$final_id[.]
+all_phen_raw$Read_count <- all_phen_raw$ID %>% match(.,all_read_raw$final_id) %>% all_read_raw$Read_count[.]
+
+phen_info<-data.frame(Phenotype = colnames(all_phen_raw),
+                      Class = rep(NA, ncol(all_phen_raw)))
+phen_info$Class[grep("^sp_",phen_info$Phenotype)]<-"Species"
+phen_info$Class[grep("^med_",phen_info$Phenotype)]<-"Medicine"
+phen_info$Class[grep("^diet_",phen_info$Phenotype)]<-"Diet"
+phen_info$Class[grep("^clinical_",phen_info$Phenotype)]<-"Clinical"
+phen_info$Class[grep("^host_",phen_info$Phenotype)]<-"Host"
+phen_info$Class[c(1,2,1174)]<-c("ID", "Group","Group")
+phen_info$Class[10]<-"Smoking"
+phen_info$Class[c(3:5,1175)]<-"Experiment"
+phen_info$Class[312:1173]<-"Metabolite"
+
+## Check phenotype value type
+phen_info$Value_type<-"Binary"
+phen_info$Value_type[apply(all_phen_raw, 2, my_uniq) > 2]<-"Continuous"
+phen_info$Uniq_value_N<-apply(all_phen_raw, 2, my_uniq)
+
+if(!dir.exists("01.cleanData")){dir.create("01.cleanData")}
+if(!dir.exists("01.cleanData/Info")){dir.create("01.cleanData/Info")}
+write.table(phen_info, "01.cleanData/Info/phenotype_info.tsv", row.names = F, col.names = T, sep = "\t", quote = F)
+
+## clean datasets
+colnames(all_vsv_raw)<-changeSVname(colnames(all_vsv_raw))
+colnames(all_dsv_raw)<-changeSVname(colnames(all_dsv_raw))
+
+inter_phen_fmetab<-intersect(all_phen_raw$ID, rownames(all_fmetab_raw)) # 679
+inter_phen_fmetab_sv<-intersect(inter_phen_fmetab, rownames(all_vsv_raw)) # 677
+
+all_vsv    <- all_vsv_raw[match(inter_phen_fmetab_sv, rownames(all_vsv_raw)),]
+all_dsv    <- all_dsv_raw[match(inter_phen_fmetab_sv, rownames(all_dsv_raw)),]
+all_phen   <- all_phen_raw[match(inter_phen_fmetab_sv, all_phen_raw$ID),]
+all_fmetab <- all_fmetab_raw[match(inter_phen_fmetab_sv, rownames(all_fmetab_raw)),]
+all_abun   <- all_abun_raw[match(inter_phen_fmetab_sv, rownames(all_abun_raw)),]
+
+ibd_vsv    <- all_vsv[match(all_phen$ID[all_phen$IBD==1], rownames(all_vsv)),]
+ibd_dsv    <- all_dsv[match(all_phen$ID[all_phen$IBD==1], rownames(all_dsv)),]
+ibd_phen   <- all_phen[match(all_phen$ID[all_phen$IBD==1], all_phen$ID),]
+ibd_fmetab <- all_fmetab[match(all_phen$ID[all_phen$IBD==1], rownames(all_fmetab)),]
+ibd_abun   <- all_abun[match(all_phen$ID[all_phen$IBD==1], rownames(all_abun)),]
+
+lld_vsv    <- all_vsv[match(all_phen$ID[all_phen$IBD==0], rownames(all_vsv)),]
+lld_dsv    <- all_dsv[match(all_phen$ID[all_phen$IBD==0], rownames(all_dsv)),]
+lld_phen   <- all_phen[match(all_phen$ID[all_phen$IBD==0], all_phen$ID),]
+lld_fmetab <- all_fmetab[match(all_phen$ID[all_phen$IBD==0], rownames(all_fmetab)),]
+lld_abun   <- all_abun[match(all_phen$ID[all_phen$IBD==0], rownames(all_abun)),]
+
+
+## Filter out low prevalent species and SVs in LLD and IBD
+#sum(colSums(!is.na(lld_dsv)) > (0.1*nrow(lld_dsv)) & colSums(!is.na(lld_dsv)) > (0.1*nrow(ibd_dsv)))
+#sum(colSums(!is.na(lld_vsv)) > (0.1*nrow(lld_vsv)) & colSums(!is.na(lld_vsv)) > (0.1*nrow(ibd_vsv)))
+
+selected_dsv<-colSums(!is.na(lld_dsv)) > (0.1*nrow(lld_dsv)) & colSums(!is.na(lld_dsv)) > (0.1*nrow(ibd_dsv))
+selected_vsv<-colSums(!is.na(lld_vsv)) > (0.1*nrow(lld_vsv)) & colSums(!is.na(lld_vsv)) > (0.1*nrow(ibd_vsv))
+
+all_vsv<-all_vsv[,selected_vsv]
+all_dsv<-all_dsv[,selected_dsv]
+ibd_vsv<-ibd_vsv[,selected_vsv]
+ibd_dsv<-ibd_dsv[,selected_dsv]
+lld_vsv<-lld_vsv[,selected_vsv]
+lld_dsv<-lld_dsv[,selected_dsv]
+
+## Filter out low prevalent fecal metabolites and SVs in LLD and IBD
+selected_fmetab<-colSums(!is.na(lld_fmetab)) > (0.1*nrow(lld_fmetab)) & colSums(!is.na(lld_fmetab)) > (0.1*nrow(ibd_fmetab))
+all_fmetab  <- all_fmetab[,selected_fmetab]
+ibd_fmetab <- ibd_fmetab[,selected_fmetab]
+lld_fmetab <- lld_fmetab[,selected_fmetab]
+
+##
+if(!dir.exists("01.cleanData")){dir.create("01.cleanData")}
+if(!dir.exists("01.cleanData/All")){dir.create("01.cleanData/All")}
+save(all_vsv, file = "01.cleanData/All/all_vsv.RData")
+save(all_dsv, file = "01.cleanData/All/all_dsv.RData")
+save(all_phen, file = "01.cleanData/All/all_phen.RData")
+save(all_fmetab, file = "01.cleanData/All/all_fmetab.RData")
+save(all_abun, file = "01.cleanData/All/all_abun.RData")
+
+if(!dir.exists("01.cleanData/IBD")){dir.create("01.cleanData/IBD")}
+save(ibd_vsv, file = "01.cleanData/IBD/ibd_vsv.RData")
+save(ibd_dsv, file = "01.cleanData/IBD/ibd_dsv.RData")
+save(ibd_phen, file = "01.cleanData/IBD/ibd_phen.RData")
+save(ibd_fmetab, file = "01.cleanData/IBD/ibd_fmetab.RData")
+save(ibd_abun, file = "01.cleanData/IBD/ibd_abun.RData")
+
+if(!dir.exists("01.cleanData/LLD")){dir.create("01.cleanData/LLD")}
+save(lld_vsv, file = "01.cleanData/LLD/lld_vsv.RData")
+save(lld_dsv, file = "01.cleanData/LLD/lld_dsv.RData")
+save(lld_phen, file = "01.cleanData/LLD/lld_phen.RData")
+save(lld_fmetab, file = "01.cleanData/LLD/lld_fmetab.RData")
+save(lld_abun, file = "01.cleanData/LLD/lld_abun.RData")
+```
+
+### 2.2 Clean HMP2 data
+
+```{r 2.2}
+colnames(vsgv_hmp2_baseend)<-changeSVname(colnames(vsgv_hmp2_baseend))
+colnames(dsgv_hmp2_baseend)<-changeSVname(colnames(dsgv_hmp2_baseend))
+
+hmp2_base_vsv  <- vsgv_hmp2_baseend[hmp2_phen_raw$Time_point=="Baseline",selected_vsv]
+hmp2_base_dsv  <- dsgv_hmp2_baseend[hmp2_phen_raw$Time_point=="Baseline",selected_dsv]
+hmp2_base_phen <- hmp2_phen_raw[hmp2_phen_raw$Time_point=="Baseline",]
+
+if(!dir.exists("01.cleanData/HMP2")){dir.create("01.cleanData/HMP2")}
+save(hmp2_base_vsv, file = "01.cleanData/HMP2/hmp2_base_vsv.RData")
+save(hmp2_base_dsv, file = "01.cleanData/HMP2/hmp2_base_dsv.RData")
+save(hmp2_base_phen, file = "01.cleanData/HMP2/hmp2_base_phen.RData")
+```
+
+
+## 3  Get SV information tables
+
+### 3.1 Get name conversion table
+
+```{r 3.1}
+# Name conversion
+organism<-str_replace_all(colnames(all_dsv),"\\:\\d+_\\d+.*","") %>%
+  .[!duplicated(.)]
+
+Short_name<- organism %>% 
+  str_replace_all('\\[','') %>%
+  str_replace_all('\\]', '') %>%
+  str_replace_all(' cf\\.','')
+
+Short_name[grep(' sp\\.', organism, invert = F)] <- Short_name[grep(' sp\\.', organism, invert = F)] %>%
+  str_replace_all('sp\\..*','sp')
+
+Fst_letter<-Short_name[grep(' sp\\.', organism, invert = T)] %>%
+  str_replace_all(' .*','') %>%
+  str_sub(start = 1,end = 1)
+
+Spe_name<-Short_name[grep(' sp\\.', organism, invert = T)] %>%
+  str_extract_all(' .*') %>%
+  str_replace_all('^ ', '') %>%
+  str_replace_all(' .*', '')
+
+Short_name[grep(' sp\\.', organism, invert = T)] <-paste(Fst_letter,'.', Spe_name, sep = '')
+
+taxa_name<-data.frame(NCBI_taxonomy_id = taxonomy$X[match(organism,taxonomy$organism)],
+                      organism = as.character(organism), 
+                      Short_name = as.character(Short_name), stringsAsFactors = F)
+
+taxa_name$Short_name[match('bacterium LF-3',taxa_name$organism)]<-'bacterium LF-3'
+
+taxa_name<-left_join(taxa_name, ncbi, by = "NCBI_taxonomy_id")
+
+if(!dir.exists("01.cleanData/Info")){dir.create("01.cleanData/Info")}
+write.table(taxa_name, "01.cleanData/Info/Species_name.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+### 3.2  Get SV annotation tables
+
+```{r 3}
+# SV annotation tables
+dsgv_info_anno<-colnames(all_dsv)%>%match(.,dsv_info$SV_Name)%>%dsv_info[.,]
+vsgv_info_anno<-colnames(all_vsv)%>%match(.,vsv_info$SV_Name)%>%vsv_info[.,]
+
+
+if(!dir.exists("01.cleanData/Info")){dir.create("01.cleanData/Info")}
+write.table(dsgv_info_anno, "01.cleanData/Info/dsgv_info_anno.tsv", 
+            sep = "\t", quote = F, col.names = T, row.names = F)
+write.table(vsgv_info_anno, "01.cleanData/Info/vsgv_info_anno.tsv", 
+            sep = "\t", quote = F, col.names = T, row.names = F)
+```
+
+
+### 3.3 Get species information table
+
+```{r 4.4}
+## Get SV number per species
+species_dsgv_n<-str_replace_all(colnames(all_dsv),"\\:\\d+_\\d+.*","") %>%
+  table(.) %>%
+  as.data.frame(.)
+colnames(species_dsgv_n)<-c("Species","Deletion SVs number")
+species_vsgv_n<-str_replace_all(colnames(all_vsv),"\\:\\d+_\\d+.*","") %>%
+  table(.) %>%
+  as.data.frame(.)
+colnames(species_vsgv_n)<-c("Species","Variable SVs number")
+
+species_sgv_n<-full_join(species_dsgv_n, species_vsgv_n, by = "Species")
+species_sgv_n[is.na(species_sgv_n)]<-0
+
+NCBI_taxonomy_id<-species_sgv_n$Species %>%
+  match(.,taxonomy$organism) %>%
+  taxonomy$X[.]
+species_sgv_n<-data.frame(NCBI_taxonomy_id, species_sgv_n)
+
+## Get sample size per species
+dsgv_infor_sample_n<-str_replace_all(colnames(all_dsv),"\\:\\d+_\\d+.*","") %>%
+  duplicated(.) %>%
+  `!`%>%
+  all_dsv[,.] %>%
+  is.na(.) %>%
+  `!`%>%
+  colSums(.) %>%
+  as.data.frame(.)
+colnames(dsgv_infor_sample_n) <- "Sample_number"
+rownames(dsgv_infor_sample_n) <- rownames(dsgv_infor_sample_n) %>%
+  str_replace_all(.,"\\:\\d+_\\d+.*", "")
+dsgv_infor_sample_n<-data.frame(Species = rownames(dsgv_infor_sample_n),dsgv_infor_sample_n)
+
+Taxonomy_name <- match(dsgv_infor_sample_n$Species,taxa_name$organism) %>%
+  taxa_name$Short_name[.]
+sample_n<-data.frame(Short_name=Taxonomy_name, dsgv_infor_sample_n)
+
+## LLD sample size per species
+lld_infor_sample_n<-str_replace_all(colnames(all_dsv),"\\:\\d+_\\d+.*","") %>%
+  duplicated(.) %>%
+  `!`%>%
+  all_dsv[grep('^LLD',rownames(all_dsv)),.] %>%
+  is.na(.) %>%
+  `!`%>%
+  colSums(.) %>%
+  as.data.frame(.)
+colnames(lld_infor_sample_n) <- "LLD"
+rownames(lld_infor_sample_n) <- rownames(lld_infor_sample_n) %>%
+  str_replace_all(.,"\\:\\d+_\\d+.*", "")
+lld_infor_sample_n<-data.frame(Species = rownames(lld_infor_sample_n),lld_infor_sample_n)
+
+## IBD sample size per species
+ibd_infor_sample_n<-str_replace_all(colnames(all_dsv),"\\:\\d+_\\d+.*","") %>%
+  duplicated(.) %>%
+  `!`%>%
+  all_dsv[grep('^LLD',rownames(all_dsv),invert = T),.] %>%
+  is.na(.) %>%
+  `!`%>%
+  colSums(.) %>%
+  as.data.frame(.)
+colnames(ibd_infor_sample_n) <- "IBD"
+rownames(ibd_infor_sample_n) <- rownames(ibd_infor_sample_n) %>%
+  str_replace_all(.,"\\:\\d+_\\d+.*", "")
+ibd_infor_sample_n<-data.frame(Species = rownames(ibd_infor_sample_n),ibd_infor_sample_n)
+
+## merge LLD and 300ibd sample size
+infor_sample_n <- cbind(lld_infor_sample_n,ibd_infor_sample_n,sample_n)[,-c(3,6)] %>% .[,c(1,4,2,3,5)]
+
+## Merge sample size and SV number information
+species_sample_n<-dplyr::full_join(species_sgv_n,infor_sample_n, by = "Species")
+taxa_length$Species<-str_replace_all(taxa_length$Species, '\\..*', '')
+species_sample_n$NCBI_taxonomy_id<-as.character(species_sample_n$NCBI_taxonomy_id)
+species_sample_n<-dplyr::left_join(species_sample_n, taxa_length, by = c("NCBI_taxonomy_id"="Species"))
+species_sample_n<-data.frame(species_sample_n,
+                             SVs.number = species_sample_n[,3]+species_sample_n[,4])
+
+## Merge all information
+Informative_species_information <- match(species_sample_n$NCBI_taxonomy_id, taxonomy$X)%>%
+  taxonomy[.,] %>%
+  cbind(.,species_sample_n)
+
+info <- full_join(Informative_species_information[,-11],
+                                             taxa_name,
+                                             by = 'organism')[,c(1:9,20,21,11,12,18,14,15,16,17)]
+
+colnames(info)[c(1,10:18)]<-c("NCBI_taxonomy_id","Short_name","NCBI_bioproject_accession",   "Deletion_SVs_number", "Variable_SVs_number","SVs_number","LLD_sample_number","IBD_sample_number","Total_samples_number", "Length")
+
+write.table(info, "01.cleanData/Info/Informative_species_information.tsv", col.names = T, row.names = F, sep = "\t", quote = F)
+```
+
+### 3.4 Clean fecal metabolite annotation table
+
+```{r 3.4}
+fmetab_anno<-match(fmetab_ext_info$BIOCHEMICAL, fmetab_info$BIOCHEMICAL) %>% fmetab_info[.,] %>% cbind(fmetab_ext_info,.)
+
+fmetab_name<-data.frame(all_fmetab.name=colnames(all_fmetab),
+                        all_fmetab.name.covert = str_replace_all(colnames(all_fmetab),"\\,", "_"))
+fmetab_name$fmetab_anno.name<-fmetab_name$all_fmetab.name.covert %>% match(., fmetab_anno$Metabolite_name_in_tables) %>% fmetab_anno$Metabolite_name_in_tables[.]
+
+fmetab_info_anno<-match(fmetab_name$fmetab_anno.name, fmetab_anno$Metabolite_name_in_tables)%>% fmetab_anno[.,]%>%cbind(fmetab_name,.)
+fmetab_info_anno$`Super pathway`[is.na(fmetab_info_anno$`Super pathway`)]<-"Unknown"
+fmetab_info_anno$`SUB PATHWAY`[is.na(fmetab_info_anno$`SUB PATHWAY`)]<-"Unknown"
+
+fmetab_info_anno<-fmetab_info_anno[,!duplicated(colnames(fmetab_info_anno))]
+
+## Clean
+fmetab_info_anno$Annotation  <- fmetab_info_anno$Annotation %>% str_replace_all("\"", "")
+fmetab_info_anno$super_class <- fmetab_info_anno$super_class%>%str_replace_all("\"","")%>%str_replace_all("聽", "")
+fmetab_info_anno$class       <- fmetab_info_anno$class%>%str_replace_all("\"","")%>%str_replace_all("聽", "")
+fmetab_info_anno$sub_class       <- fmetab_info_anno$sub_class%>%str_replace_all("\"","")%>%str_replace_all("聽", "")
+fmetab_info_anno$direct_parent       <- fmetab_info_anno$direct_parent%>%str_replace_all("\"","")%>%str_replace_all("聽", "")
+fmetab_info_anno$`SUB PATHWAY`  <- fmetab_info_anno$`SUB PATHWAY`%>%str_replace_all("\"","")
+fmetab_info_anno$KEGG <- fmetab_info_anno$KEGG %>%str_replace_all("聽", "")
+
+if(!dir.exists("01.cleanData/Info/")){dir.create("01.cleanData/HMP2")}
+write.table(fmetab_info_anno, "01.cleanData/Info/fmetab_info.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+### 3.4 Get distance matrices
+
+#### 3.4.1 All samples
+
+```{r 3.4.1, eval=FALSE}
+load("01.cleanData/All/all_vsv.RData")
+load("01.cleanData/All/all_dsv.RData")
+
+## msv (vsv+dsv) distance
+sgv<-cbind(all_vsv, all_dsv)
+all_shared_sv_dis<-shared_sv_dis(sgv)
+save(all_shared_sv_dis, file = "01.cleanData/All/all_shared_sv_dis.RData")
+
+## SV distance matrices of all species
+all_msv_dist<-NULL
+
+for (i in c(1:nrow(info))){
+  #i<-16
+  spe_name<-str_replace_all(info$organism[i],"\\[","\\\\\\[") %>% str_replace_all("\\]","\\\\\\]")
+  vsgv_i<-all_vsv[,grep(spe_name,colnames(all_vsv))]
+  dsgv_i<-all_dsv[,grep(spe_name,colnames(all_dsv))]
+  all_msv_i<-cbind(vsgv_i,dsgv_i) %>%
+    na.omit(.)
+
+  all_msv_dist_i <- as.matrix(vegdist(as.data.frame(all_msv_i),method = "canberra"))
+  all_msv_dist[[i]]<-all_msv_dist_i
+}
+
+names(all_msv_dist)<-paste('msv_',info$organism, sep = '')
+all_msv_dist_std <- lapply(all_msv_dist, myfun<-function(x){x/max(x,na.rm = T)})
+
+if(!dir.exists("01.cleanData/All/distMat")){dir.create("01.cleanData/All/distMat")}
+save(all_msv_dist,     file = "01.cleanData/All/distMat/all_msv_dist.RData")
+save(all_msv_dist_std, file = "01.cleanData/All/distMat/all_msv_dist_std.RData")
+```
+
+
+#### 3.4.2 LLD samples
+
+```{r 3.4.2, eval=FALSE}
+load("01.cleanData/LLD/lld_vsv.RData")
+load("01.cleanData/LLD/lld_dsv.RData")
+
+## SV distance matrices of all species
+lld_msv_dist<-NULL
+
+for (i in c(1:nrow(info))){
+  #i<-16
+  spe_name<-str_replace_all(info$organism[i],"\\[","\\\\\\[") %>% str_replace_all("\\]","\\\\\\]")
+  vsgv_i<-lld_vsv[,grep(spe_name,colnames(lld_vsv))]
+  dsgv_i<-lld_dsv[,grep(spe_name,colnames(lld_dsv))]
+  lld_msv_i<-cbind(vsgv_i,dsgv_i) %>%
+    na.omit(.)
+
+  lld_msv_dist_i <- as.matrix(vegdist(as.data.frame(lld_msv_i),method = "canberra"))
+  lld_msv_dist[[i]]<-lld_msv_dist_i
+}
+
+names(lld_msv_dist)<-paste('msv_',info$organism, sep = '')
+lld_msv_dist_std <- lapply(lld_msv_dist, myfun<-function(x){x/max(x,na.rm = T)})
+
+if(!dir.exists("01.cleanData/LLD/distMat")){dir.create("01.cleanData/LLD/distMat")}
+save(lld_msv_dist,     file = "01.cleanData/LLD/distMat/lld_msv_dist.RData")
+save(lld_msv_dist_std, file = "01.cleanData/LLD/distMat/lld_msv_dist_std.RData")
+```
+
+
+#### 3.4.3 IBD samples
+
+```{r 3.4.3, eval=FALSE}
+load("01.cleanData/IBD/ibd_vsv.RData")
+load("01.cleanData/IBD/ibd_dsv.RData")
+
+## SV distance matrices of all species
+ibd_msv_dist<-NULL
+
+for (i in c(1:nrow(info))){
+  #i<-16
+  spe_name<-str_replace_all(info$organism[i],"\\[","\\\\\\[") %>% str_replace_all("\\]","\\\\\\]")
+  vsgv_i<-ibd_vsv[,grep(spe_name,colnames(ibd_vsv))]
+  dsgv_i<-ibd_dsv[,grep(spe_name,colnames(ibd_dsv))]
+  ibd_msv_i<-cbind(vsgv_i,dsgv_i) %>%
+    na.omit(.)
+
+  ibd_msv_dist_i <- as.matrix(vegdist(as.data.frame(ibd_msv_i),method = "canberra"))
+  ibd_msv_dist[[i]]<-ibd_msv_dist_i
+}
+
+names(ibd_msv_dist)<-paste('msv_',info$organism, sep = '')
+ibd_msv_dist_std <- lapply(ibd_msv_dist, myfun<-function(x){x/max(x,na.rm = T)})
+
+if(!dir.exists("01.cleanData/IBD/distMat")){dir.create("01.cleanData/IBD/distMat")}
+save(ibd_msv_dist,     file = "01.cleanData/IBD/distMat/ibd_msv_dist.RData")
+save(ibd_msv_dist_std, file = "01.cleanData/IBD/distMat/ibd_msv_dist_std.RData")
+```
+
+### 3.5 SV relationship
+
+#### 3.5.1 vSV
+
+```{r 3.5.1}
+vsv_order<-NULL
+
+for (i in 1:nrow(info)) {
+#  i<-1
+  file_name<-str_replace_all(info$organism[i], "\\/", "\\.")
+  spe_name<-str_replace_all(info$organism[i],"\\[","\\\\\\[") %>% str_replace_all("\\]","\\\\\\]")
+  vsv_i<-all_vsv[,grep(spe_name,colnames(all_vsv))] %>% na.omit %>% t %>% as.data.frame
+  
+  vsv_corr_i <- rcorr(as.matrix(t(vsv_i)))
+  dist_i<-1-abs(vsv_corr_i$r) %>% as.dist
+  hc_i <- hclust(d = dist_i, method = "average")
+  fviz_dend(hc_i, cex = 0.5)
+  hc_cut_i <- cutree(hc_i, h=0.5)
+  
+  vsv_order_i<-data.frame(organism = rep(info$organism[i], nrow(vsv_i)),
+                          SV_Name = rownames(vsv_i),
+                          Cluster_order = match(rownames(vsv_i),rownames(vsv_i)[hc_i$order]))
+  vsv_order_i$Cluster<-names(hc_cut_i) %>% match(vsv_order_i$SV_Name, .) %>% hc_cut_i[.]
+  vsv_order_i<-vsv_order_i[order(vsv_order_i$Cluster_order, decreasing = F),]
+  
+  non_dup_i<-!duplicated(vsv_order_i$Cluster)
+  j<-0
+  LD_block<-NULL
+  for (i in 1:length(non_dup_i)) {
+    if(non_dup_i[i]){
+      j<-j+1
+      LD_block[i]<-j
+    }else{
+      LD_block[i]<-j
+    }
+  }
+  vsv_order_i$LD_block<-LD_block
+  
+  vsv_order<-rbind(vsv_order, vsv_order_i)
+}
+
+spe_rank_vsv<-data.frame(organism = info$organism,
+                         SVs_number = info$SVs_number) %>%
+  .[order(.$SVs_number, decreasing = T),]
+spe_rank_vsv$Rank<-c(1:nrow(spe_rank_vsv))
+
+vsv_order_rank<-right_join(spe_rank_vsv, vsv_order, by = "organism")
+
+write.table(vsv_order_rank, "01.cleanData/Info/vsv_cluster_order.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+
+#### 3.5.2 dSV
+
+```{r 3.5.2}
+dsv_order<-NULL
+
+for (i in 1:nrow(info)) {
+#  i<-2
+  file_name<-str_replace_all(info$organism[i], "\\/", "\\.")
+  spe_name<-str_replace_all(info$organism[i],"\\[","\\\\\\[") %>% str_replace_all("\\]","\\\\\\]")
+  dsv_i<-all_dsv[,grep(spe_name,colnames(all_dsv))] %>% na.omit %>% t %>% as.data.frame
+  
+  dsv_corr_i <- rcorr(as.matrix(t(dsv_i)))
+  dist_i<-1-abs(dsv_corr_i$r) %>% as.dist
+  dist_i[is.na(dist_i)]<-1
+  hc_i <- hclust(d = dist_i, method = "average")
+  fviz_dend(hc_i, cex = 0.5)
+  hc_cut_i <- cutree(hc_i, h=0.5)
+  
+  dsv_order_i<-data.frame(organism = rep(info$organism[i], nrow(dsv_i)),
+                          SV_Name = rownames(dsv_i),
+                          Cluster_order = match(rownames(dsv_i),rownames(dsv_i)[hc_i$order]))
+  dsv_order_i$Cluster<-names(hc_cut_i) %>% match(dsv_order_i$SV_Name, .) %>% hc_cut_i[.]
+  dsv_order_i<-dsv_order_i[order(dsv_order_i$Cluster_order, decreasing = F),]
+  
+  non_dup_i<-!duplicated(dsv_order_i$Cluster)
+  j<-0
+  LD_block<-NULL
+  for (i in 1:length(non_dup_i)) {
+    if(non_dup_i[i]){
+      j<-j+1
+      LD_block[i]<-j
+    }else{
+      LD_block[i]<-j
+    }
+  }
+  dsv_order_i$LD_block<-LD_block
+  
+  dsv_order<-rbind(dsv_order, dsv_order_i)
+}
+
+spe_rank_dsv<-data.frame(organism = info$organism,
+                         SVs_number = info$SVs_number) %>%
+  .[order(.$SVs_number, decreasing = T),]
+spe_rank_dsv$Rank<-c(1:nrow(spe_rank_dsv))
+
+dsv_order_rank<-right_join(spe_rank_dsv, dsv_order, by = "organism")
+
+write.table(dsv_order_rank, "01.cleanData/Info/dsv_cluster_order.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+#### 3.5.3 Create genome and cytoband file
+
+```{r 3.5.3}
+pseudo_genome_vsv<-data.frame(chr = info$Short_name,
+                     start = rep(1, nrow(info)),
+                     end = info$Variable_SVs_number)
+pseudo_genome_vsv<-match(info$Short_name[order(info$SVs_number, decreasing = T)], pseudo_genome_vsv$chr) %>% pseudo_genome_vsv[.,]
+pseudo_genome_vsv<- toGRanges(pseudo_genome_vsv)
+
+## vSV
+pseudo_cyto_vSV<-data.frame(label = unique(paste(vsv_order_rank$organism, vsv_order_rank$LD_block, sep = "__")))
+pseudo_cyto_vSV$chr = str_replace_all(pseudo_cyto_vSV$label, "__.*", "") %>% match(., info$organism) %>% info$Short_name[.]
+pseudo_cyto_vSV$start = rep(1, nrow(pseudo_cyto_vSV))
+
+LD_len<-table(paste(vsv_order_rank$organism, vsv_order_rank$LD_block, sep = "__"))
+pseudo_cyto_vSV$end <- match(pseudo_cyto_vSV$label, names(LD_len)) %>% LD_len[.]
+pseudo_cyto_vSV$name = str_replace_all(pseudo_cyto_vSV$label, ".*__", "") %>% paste(pseudo_cyto_vSV$chr, ., sep = "_")
+pseudo_cyto_vSV$gieStain<-"gneg"
+pseudo_cyto_vSV$gieStain[as.numeric(str_replace_all(pseudo_cyto_vSV$label, ".*__", ""))%%2==0]<-"acen"
+
+pseudo_cyto_vsv<-NULL
+
+for (i in 1:nrow(info)) {
+#  i<-1
+  pseudo_cyto_vsv_i<-grep(info$Short_name[i], pseudo_cyto_vSV$chr) %>% pseudo_cyto_vSV[.,]
+  pseudo_cyto_vsv_i$end<-cumsum(pseudo_cyto_vsv_i$end)
+  pseudo_cyto_vsv_i$start<-c(1,pseudo_cyto_vsv_i$end[-length(pseudo_cyto_vsv_i$end)]+1)
+  pseudo_cyto_vsv<-rbind(pseudo_cyto_vsv, pseudo_cyto_vsv_i)
+}
+
+pseudo_cyto_vsv<-match(pseudo_cyto_vSV$label, pseudo_cyto_vsv$label)%>%pseudo_cyto_vsv[.,-1]
+pseudo_cyto_vsv<-toGRanges(pseudo_cyto_vsv)
+
+#kp<-plotKaryotype(genome = pseudo_genome, cytobands = pseudo_cyto_vsv)
+
+pseudo_genome_dsv<-data.frame(chr = info$Short_name,
+                     start = rep(1, nrow(info)),
+                     end = info$Deletion_SVs_number)
+pseudo_genome_dsv<-match(info$Short_name[order(info$SVs_number, decreasing = T)], pseudo_genome_dsv$chr) %>% pseudo_genome_dsv[.,]
+pseudo_genome_dsv<- toGRanges(pseudo_genome_dsv)
+## dSV
+pseudo_cyto_dSV<-data.frame(label = unique(paste(dsv_order_rank$organism, dsv_order_rank$LD_block, sep = "__")))
+pseudo_cyto_dSV$chr = str_replace_all(pseudo_cyto_dSV$label, "__.*", "") %>% match(., info$organism) %>% info$Short_name[.]
+pseudo_cyto_dSV$start = rep(1, nrow(pseudo_cyto_dSV))
+
+LD_len<-table(paste(dsv_order_rank$organism, dsv_order_rank$LD_block, sep = "__"))
+pseudo_cyto_dSV$end <- match(pseudo_cyto_dSV$label, names(LD_len)) %>% LD_len[.]
+pseudo_cyto_dSV$name = str_replace_all(pseudo_cyto_dSV$label, ".*__", "") %>% paste(pseudo_cyto_dSV$chr, ., sep = "_")
+pseudo_cyto_dSV$gieStain<-"gneg"
+pseudo_cyto_dSV$gieStain[as.numeric(str_replace_all(pseudo_cyto_dSV$label, ".*__", ""))%%2==0]<-"acen"
+
+pseudo_cyto_dsv<-NULL
+
+for (i in 1:nrow(info)) {
+#  i<-1
+  pseudo_cyto_dsv_i<-grep(info$Short_name[i], pseudo_cyto_dSV$chr) %>% pseudo_cyto_dSV[.,]
+  pseudo_cyto_dsv_i$end<-cumsum(pseudo_cyto_dsv_i$end)
+  pseudo_cyto_dsv_i$start<-c(1,pseudo_cyto_dsv_i$end[-length(pseudo_cyto_dsv_i$end)]+1)
+  pseudo_cyto_dsv<-rbind(pseudo_cyto_dsv, pseudo_cyto_dsv_i)
+}
+
+pseudo_cyto_dsv<-match(pseudo_cyto_dSV$label, pseudo_cyto_dsv$label)%>%pseudo_cyto_dsv[.,-1]
+pseudo_cyto_dsv<-toGRanges(pseudo_cyto_dsv)
+
+#kp<-plotKaryotype(genome = pseudo_genome, cytobands = pseudo_cyto_dsv)
+
+pseudo_genome_cyto<-list(pseudo_genome_vsv=pseudo_genome_vsv, pseudo_genome_dsv = pseudo_genome_dsv,
+                         pseudo_cyto_vsv=pseudo_cyto_vsv, pseudo_cyto_dsv=pseudo_cyto_dsv)
+save(pseudo_genome_cyto, file = "01.cleanData/Info/pseudo_genome_cyto.RData")
+```

@@ -1,0 +1,238 @@
+---
+title: "Fecal metabolome summary statistics"
+author: "Daoming Wang"
+date: "2021/09/29"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+### 1.1 Import
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/all_phen.RData")
+
+load("01.cleanData/LLD/lld_phen.RData")
+load("01.cleanData/IBD/ibd_phen.RData")
+```
+
+## 2 Basic phenotypes
+
+```{r 2,fig.height=6,fig.width=3}
+## Gender
+table(all_phen$Cohort, all_phen$host_Sex)
+
+all_gender_tbl <- table(all_phen$Cohort,all_phen$host_Sex) 
+chisq.test(all_gender_tbl) 
+all_phen$Cohort<-as.factor(all_phen$Cohort)
+all_phen$host_Sex<-as.factor(all_phen$host_Sex)
+p_gender<-ggplot(data=all_phen)+
+  geom_mosaic(aes(x = product(Cohort), fill=host_Sex))+
+  ylab("Gender")+
+  xlab("Cohort")+
+  scale_fill_manual(values=mycolor2_green_blue) +
+  theme_tufte()+
+  theme(axis.ticks.length = unit(0, "cm"), 
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        #axis.text.y = element_text(colour = "white"), 
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5))
+
+mean(lld_phen$host_Age, na.rm = T)
+se(lld_phen$host_Age)
+min(lld_phen$host_Age, na.rm = T)
+max(lld_phen$host_Age, na.rm = T)
+
+mean(ibd_phen$host_Age, na.rm = T)
+se(ibd_phen$host_Age)
+min(ibd_phen$host_Age, na.rm = T)
+max(ibd_phen$host_Age, na.rm = T)
+
+wilcox.test(all_phen$host_Age~all_phen$Cohort)
+
+p_age<-ggplot(all_phen,aes(x=host_Age, color = Cohort, fill = Cohort))+
+  geom_density(alpha = 0.2)+
+  geom_rug(alpha = 0.5,length = unit(0.05, "npc"))+
+  ylab('Density')+
+  xlab('Age (years)')+
+  scale_y_continuous(expand = c(0,0))+
+  scale_color_manual(name=NULL,
+                     breaks=c("LLD", "IBD"),
+                     labels=c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  scale_fill_manual(name=NULL,
+                    breaks=c("LLD", "IBD"),
+                    labels=c("LLD", "IBD"),
+                    values = mycolor2_blue_red)+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = "none",
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA), 
+        panel.background = element_rect(fill = NA))
+
+## host_BMI
+mean(lld_phen$host_BMI, na.rm = T)
+se(lld_phen$host_BMI)
+min(lld_phen$host_BMI, na.rm = T)
+max(lld_phen$host_BMI, na.rm = T)
+
+mean(ibd_phen$host_BMI, na.rm = T)
+se(ibd_phen$host_BMI)
+min(ibd_phen$host_BMI, na.rm = T)
+max(ibd_phen$host_BMI, na.rm = T)
+
+wilcox.test(all_phen$host_BMI~all_phen$Cohort)
+
+p_host_BMI<-ggplot(all_phen,aes(x=host_BMI, color = Cohort, fill = Cohort))+
+  geom_density(alpha = 0.2)+
+  geom_rug(alpha = 0.5,length = unit(0.05, "npc"))+
+  ylab('Density')+
+  xlab('BMI')+
+  scale_y_continuous(expand = c(0,0))+
+  scale_color_manual(name=NULL,
+                     breaks=c("LLD", "IBD"),
+                     labels=c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  scale_fill_manual(name=NULL,
+                    breaks=c("LLD", "IBD"),
+                    labels=c("LLD", "IBD"),
+                    values = mycolor2_blue_red)+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = "none",
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA), 
+        panel.background = element_rect(fill = NA))
+
+
+## plot
+p_title <- ggdraw() + 
+  draw_label(
+    'Group characteristics',
+    fontface = 'bold', x = 0, hjust = 0) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7))
+
+p_demo_grid<-plot_grid(
+  p_title, 
+  plot_grid(p_gender,p_age, p_host_BMI,
+            rel_widths = c(0.2, 1, 1),align = 'hv',
+            #labels = c("E", "F", "G"),
+            ncol = 1,label_size	= 8,vjust = 0),
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1.5)
+)
+
+
+print(p_demo_grid)
+
+if(!dir.exists("02.phen_fmetab_summary")){dir.create("02.phen_fmetab_summary")}
+pdf("02.phen_fmetab_summary/group_characteristics.pdf", height = 6, width = 3)
+print(p_demo_grid)
+dev.off()
+```
+
+## 3 Fecal metabolites
+
+### 3.1 Summary statistics
+
+```{r 3.1}
+all_group_fmetab<-data.frame(Group = all_phen$Cohort, all_fmetab)
+all_group_fmetab.long<-melt(all_group_fmetab, id.vars=colnames(all_group_fmetab)[c(1)])
+
+all_group_fmetab.summ<-summarySE(all_group_fmetab.long, measurevar="value", groupvars = c("Group","variable"))
+write.table(all_group_fmetab.summ, "02.phen_fmetab_summary/All_fecal_metabolite_summary.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+
+all_group_fmetab.summ.merge<- cbind(all_group_fmetab.summ[1:ncol(all_fmetab),],
+                                   all_group_fmetab.summ[(ncol(all_fmetab)+1):(2*ncol(all_fmetab)),])[,-c(18:19)]
+
+colnames(all_group_fmetab.summ.merge)[3:32]<-c(paste("Ctrl",colnames(all_group_fmetab.summ)[-c(1:2)],sep = "."),
+                                              paste("IBD",colnames(all_group_fmetab.summ)[-c(1:2)],sep = "."))
+
+```
+
+### 3.2 Differences between groups
+
+```{r 3.2}
+
+fmetab_diff_res<-as.data.frame(matrix(NA, nrow = ncol(all_fmetab), ncol = 5))
+
+for (i in 1:ncol(all_fmetab)) {
+  #i <- 1
+  wilcox.res<-wilcox.test(all_fmetab[,i]~all_phen$IBD)
+  LLD.mean<-mean(all_fmetab[all_phen$IBD==0,i],na.rm = T)
+  IBD.mean <-mean(all_fmetab[all_phen$IBD==1,i],na.rm = T)
+  Diff<-LLD.mean-IBD.mean
+  fmetab_diff_res[i,]<-c(colnames(all_fmetab)[i], wilcox.res$p.value, LLD.mean, IBD.mean, Diff)
+}
+
+colnames(fmetab_diff_res)<-c('Fecal_metabolite', 'P', 'LLD.mean', 'IBD.mean', 'Difference')
+fmetab_diff_res$P<-as.numeric(fmetab_diff_res$P)
+fmetab_diff_res$FDR<-p.adjust(fmetab_diff_res$P, method = 'fdr')
+fmetab_diff_res$Enrichment<-"None"
+fmetab_diff_res$Enrichment[fmetab_diff_res$FDR<0.05 & fmetab_diff_res$Difference > 0]<-"Ctrl"
+fmetab_diff_res$Enrichment[fmetab_diff_res$FDR<0.05 & fmetab_diff_res$Difference < 0]<-"IBD"
+
+write.table(fmetab_diff_res, "02.phen_fmetab_summary/All_fecal_metabolite_difference.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+
+```
+
+### 3.3 Visualization
+
+```{r 3.3}
+all_group_fmetab.summ.diff<-cbind(all_group_fmetab.summ.merge, fmetab_diff_res)[,-c(32)]
+write.table(all_group_fmetab.summ.diff, "02.phen_fmetab_summary/All_fecal_metabolite_summary_difference.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+
+p_mean_all<-ggplot(all_group_fmetab.summ.diff, aes(Ctrl.mea, IBD.mea))+
+  geom_point(aes(color = Enrichment),alpha = 0.4)+
+  scale_x_log10()+
+  scale_y_log10()+
+  xlab('Levels in LLD')+
+  ylab('Levels in IBD')+
+  theme_bw()+
+  theme(legend.position = 'none')
+
+pdf("02.phen_fmetab_summary/All_fecal_metabolite_mean.pdf", height = 3.5, width = 3.5) 
+print(p_mean_all)
+dev.off()
+
+print(p_mean_all)
+```

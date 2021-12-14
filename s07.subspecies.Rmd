@@ -1,0 +1,329 @@
+---
+title: "Subspecies"
+author: "Daoming Wang"
+date: "2021/10/9"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Import
+
+Import packages and functions.
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+load("01.cleanData/All/all_phen.RData")
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/distMat/all_msv_dist_std.RData")
+```
+
+## 2 Clustering analysis
+
+### 2.1 Clustering
+
+```{r 2.1, eval=TRUE}
+#all_msv_wsd_res <- lapply(all_msv_dist_std, my_cluster, ps.cutoff = 0.55)
+#beepr::beep("mario")
+if (!dir.exists("07.Subspecies")) {dir.create("07.Subspecies")}
+#save(all_msv_wsd_res,file = "07.Subspecies/all_msv_wsd_res_ps0.55.RData")
+
+## Optimum cluster number
+load("07.Subspecies/all_msv_wsd_res_ps0.55.RData")
+cluster_n <- as.data.frame(matrix(NA, nrow = nrow(info), ncol = 13))
+for (i in c(1:nrow(info))) {
+  #i<-1
+  all_msv_wsd_res[[i]]$clu_n$mean.pred
+  cluster_n[i,]<-c(info$Short_name[i], all_msv_wsd_res[[i]]$clu_n$optimalk, max(all_msv_wsd_res[[i]]$clu_n$mean.pred[-1], na.rm = T),all_msv_wsd_res[[i]]$clu_n$mean.pred)
+}
+colnames(cluster_n)<-c("Short_name", "Optimum_cluster_n", "Maximum_prediction_strength",
+                       "PS_n_1", "PS_n_2", "PS_n_3", "PS_n_4", "PS_n_5",
+                       "PS_n_6", "PS_n_7", "PS_n_8", "PS_n_9", "PS_n_10")
+
+write.table(cluster_n,"07.Subspecies/all_cluster_n.tsv", 
+            col.names = T, row.names = F, sep = "\t", quote = F)
+
+## Get cluster profile
+all_msv_cluster <- as.data.frame(matrix(NA, nrow = nrow(all_fmetab), ncol = nrow(info)))
+rownames(all_msv_cluster)<-rownames(all_fmetab)
+colnames(all_msv_cluster)<-info$Short_name
+
+for (i in 1:nrow(info)) {
+  #i <- 1
+  all_msv_cluster[match(rownames(all_msv_wsd_res[[i]]$tsne_df), rownames(all_msv_cluster)),i] <- all_msv_wsd_res[[i]]$tsne_df$Cluster
+}
+
+write.table(all_msv_cluster, "07.Subspecies/all_msv_cluster.tsv",sep = "\t", quote = F)
+
+```
+
+### 2.2 Visualization
+
+```{r 2.2, eval=FALSE}
+## PCoA plot panel
+## cohort
+pcoa_plot.list<-list()
+
+for (i in 1:nrow(info)) {
+  #i<-1
+  
+  pcoa<-all_msv_wsd_res[[i]]$pcoa
+  pcoa$Cohort<-all_phen$Cohort[match(rownames(pcoa), rownames(all_phen))]
+  p_pcoa<-ggplot(pcoa,aes(X1,X2,fill = Cohort, color = Cohort))+
+  geom_point(size = 2,alpha = 0.5)+
+  ggtitle(info$Short_name[i])+
+  xlab(paste("PCo1=",round(all_msv_wsd_res[[i]]$pcoa_res$eig[1],digits = 2),"%",sep = ""))+
+  ylab(paste("PCo2=",round(all_msv_wsd_res[[i]]$pcoa_res$eig[2],digits = 2),"%",sep = ""))+
+  scale_color_manual(name=NULL, 
+                     breaks = c("LLD", "IBD"),
+                     labels = c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  scale_fill_manual(name=NULL, 
+                     breaks = c("LLD", "IBD"),
+                     labels = c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  theme(plot.title = element_text(size=10, face="italic"),
+        plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = 'none',
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA),
+        panel.background = element_rect(fill = NA))
+  p_pcoa<-ggExtra::ggMarginal(p_pcoa, type = "histogram", groupColour = F, groupFill = TRUE,
+                            xparams = list(bins = 50, alpha = 0.5,position = 'identity', color = 'white'),
+                            yparams = list(bins = 50, alpha = 0.5,position = 'identity', color = 'white'))
+
+
+  pcoa_plot.list[[i]]<-p_pcoa
+}
+
+pdf("07.Subspecies/all_pcoa_cohort.pdf",width = 18,height = 18)
+plot_grid(plotlist=pcoa_plot.list)
+dev.off()
+
+
+## cluster
+pcoa_plot.list<-list()
+
+for (i in 1:nrow(info)) {
+  #i<-1
+  
+  pcoa<-all_msv_wsd_res[[i]]$pcoa
+  p_pcoa<-ggplot(pcoa,aes(X1,X2,fill = as.factor(all_msv_wsd_res[[i]]$tsne_df$Cluster), color = all_msv_wsd_res[[i]]$tsne_df$Cluster))+
+    geom_point(size = 2,alpha = 0.5)+
+    ggtitle(info$Short_name[i])+
+    xlab(paste("PCo1=",round(all_msv_wsd_res[[i]]$pcoa_res$eig[1],digits = 2),"%",sep = ""))+
+    ylab(paste("PCo2=",round(all_msv_wsd_res[[i]]$pcoa_res$eig[2],digits = 2),"%",sep = ""))+
+    theme(plot.title = element_text(size=10, face="italic"),
+          plot.subtitle = element_text(vjust = 1), 
+          plot.caption = element_text(vjust = 1), 
+          axis.line.x =  element_line(),
+          axis.line.y = element_line(),
+          legend.position = 'none',
+          legend.title = element_blank(),
+          legend.key = element_rect(fill = NA), 
+          panel.grid.major = element_line(colour = NA),
+          panel.grid.minor = element_line(colour = NA),
+          panel.background = element_rect(fill = NA))+ 
+    scale_color_npg()
+    p_pcoa<-ggExtra::ggMarginal(p_pcoa, type = "histogram", groupColour = F, groupFill = TRUE,
+                                xparams = list(bins = 50, alpha = 0.5,position = 'identity', color = 'white'),
+                               yparams = list(bins = 50, alpha = 0.5,position = 'identity', color = 'white'))
+  pcoa_plot.list[[i]]<-p_pcoa
+}
+
+pdf("07.Subspecies/all_pcoa.pdf",width = 18,height = 18)
+plot_grid(plotlist=pcoa_plot.list)
+dev.off()
+
+
+## tsne plot panel
+tsne_plot.list<-list()
+
+for (i in c(1:nrow(info))) {
+  #i<-1
+  tsne_df<-all_msv_wsd_res[[i]]$tsne_df
+  p_msv_tsne <- ggplot(tsne_df, aes(x = X, y = Y)) +
+    stat_ellipse(aes(group = Cluster, fill = Cluster, color = Cluster) ,
+                 type = "norm",linetype = 2, geom = "polygon", alpha = 0.05)+
+    geom_point(aes(color = Cluster), alpha = 0.5, size = 0.8)+
+    ggtitle(info$Short_name[i])+
+    scale_color_npg()+
+    scale_fill_npg()+
+    theme_void()+
+    theme(legend.position = 'none',
+          plot.title = element_text(size=5, face="italic"))
+  tsne_plot.list[[i]] <- p_msv_tsne
+}
+
+pdf("07.Subspecies/all_tsne_clusters.pdf")
+plot_grid(plotlist=tsne_plot.list)
+dev.off()
+```
+
+
+## 3 Associations with subspecies
+
+### 3.1 Associations between fecal metabolites and clusters
+
+```{r 3.1, eval=FALSE}
+#all_msv_cluster_sub<-all_msv_cluster[,cluster_n$Optimum_cluster_n>1]
+
+#all_cluster_fmetab.res <-permKW_btw_mats(all_fmetab, all_msv_cluster_sub)
+#save(all_cluster_fmetab.res, file = "07.Subspecies/all_cluster_fmetab.res.RData")
+
+load("07.Subspecies/all_cluster_fmetab.res.RData")
+all_cluster_fmetab<-all_cluster_fmetab.res$table
+all_cluster_fmetab$FDR<-p.adjust(all_cluster_fmetab$p)
+
+all_cluster_fmetab.sig<-all_cluster_fmetab[all_cluster_fmetab$FDR<0.05 & (!is.na(all_cluster_fmetab$FDR)) &
+                                             (!grepl("X__",all_cluster_fmetab$Phenotype))
+                                             ,]
+
+write.table(all_cluster_fmetab.sig, "07.Subspecies/all_cluster_fmetab.sig.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+
+
+
+
+cluster_fmetab.sig.phen  <- all_cluster_fmetab.sig$Phenotype%>%
+  as.character(.) %>%
+  .[!duplicated(.)]
+cluster_fmetab.sig.taxa <- all_cluster_fmetab.sig$Taxa %>%
+  as.character(.) %>%
+  .[!duplicated(.)] %>%
+  sort(.,decreasing = F)
+
+## circos plot
+cluster_fmetab_count<-NULL
+for (pheno in cluster_fmetab.sig.phen) {
+#  pheno <-"ursocholate"
+  cluster_phen_df<-all_cluster_fmetab.sig[all_cluster_fmetab.sig$Phenotype==pheno,]$Taxa %>%
+    str_replace_all(.,"\\:\\d+_\\d+.*", "") %>%
+    table %>%
+    as.data.frame
+  colnames(cluster_phen_df)<-c("Species", "Count")
+  cluster_phen_df<-data.frame(Fecal_metabolite = rep(pheno,nrow(cluster_phen_df)), cluster_phen_df)
+  cluster_fmetab_count<-rbind(cluster_fmetab_count,cluster_phen_df)
+}
+
+cluster_fmetab_count <- cluster_fmetab_count[order(cluster_fmetab_count$Count),]
+
+cluster_fmetab_count_species_order<-cluster_fmetab_count %>% group_by(Species) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),] %>% .$Species %>% as.character
+cluster_fmetab_count_fmetab_order<-cluster_fmetab_count %>% group_by(Fecal_metabolite) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),]  %>% .$Fecal_metabolite %>% as.character
+
+pdf("07.Subspecies/cluster_fmetab.circos.pdf", width = 40, height = 40)
+circos.par(start.degree = 0) # ,xaxis.clock.wise = F , "clock.wise" = F
+chordDiagram(cluster_fmetab_count,annotationTrack = "grid",
+             grid.col =  c(rev(wes_palette("Darjeeling1", length(cluster_fmetab_count_fmetab_order), type = "continuous")),
+                           rep('grey',length(cluster_fmetab_count_species_order))),
+             order = c(cluster_fmetab_count_fmetab_order,
+                       rev(cluster_fmetab_count_species_order)),
+             big.gap = 5,
+             preAllocateTracks = list(track.margin = c(0, uh(150, "mm")), 
+                                      track.height = max(strwidth(unlist(dimnames(cluster_fmetab_count)))))
+             )
+circos.track(track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,cex = 2.5,
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+dev.off()
+circos.clear()
+
+
+df<-data.frame(Metab = all_fmetab$`dimethylarginine__ADMA_+_SDMA`,
+               Species = as.factor(all_msv_cluster$E.rectale),
+               Cohort = all_phen$IBD) %>% na.omit
+
+pdf("07.Subspecies/E.rectale_DMA.pdf",width = 3, height = 4)
+ggviolin(df, x = "Species", y = "Metab", fill = "Species",color = "Species", 
+         title = "P = 3.08E-12",
+         #palette = blue_yellow_green_red, 
+         add.width = 1,width = 1,
+         add = "boxplot", add.params = list(fill = "white", width = 0.1))+
+  scale_fill_manual(breaks = c(1,2,3),
+                    labels = c("Cluster 1", "Cluster 2", "Cluster 3"),
+  )+
+  scale_x_discrete(breaks = c(1,2,3),
+                   labels = c("Cluster 1", "Cluster 2", "Cluster 3"))+
+  scale_y_log10()+
+  xlab(NULL)+
+  ylab("dimethylarginine__ADMA_+_SDMA")+ # xxx  ARGs Shannon index   ARGs count
+  theme_classic2()+
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5,size = 10))+
+  scale_fill_npg()+
+  scale_color_npg()
+
+dev.off()
+```
+
+### 3.2 Associations between IBD and clusters
+
+```{r 3.2}
+all_cluster_ibd<-matrix(NA, ncol = 4) %>% as.data.frame
+colnames(all_cluster_ibd)<-c("Species", "Cluster", "N_IBD", "N_LLD")
+for (i in 1:ncol(all_msv_cluster_sub)) {
+#  i<-1
+  Species<-colnames(all_msv_cluster_sub)[i]
+  cluster_disease_df<-data.frame(Cluster = all_msv_cluster_sub[,i],
+                                 Disease = all_phen$Cohort) %>% na.omit
+  
+  all_cluster_ibd_i<-table(cluster_disease_df) %>% as.data.frame %>%data.frame(rep(Species, nrow(.)),.) %>% spread(., "Disease", "Freq" )
+  colnames(all_cluster_ibd_i)<-c("Species", "Cluster", "N_IBD", "N_LLD")
+  all_cluster_ibd<-rbind(all_cluster_ibd, all_cluster_ibd_i)
+}
+
+all_cluster_ibd<-na.omit(all_cluster_ibd)
+all_cluster_ibd$N<-all_cluster_ibd$N_IBD+all_cluster_ibd$N_LLD
+all_cluster_ibd$IBD_LLD_ratio<-all_cluster_ibd$N_IBD/all_cluster_ibd$N_LLD
+all_cluster_ibd$IBD_proportion<-all_cluster_ibd$N_IBD/(all_cluster_ibd$N_IBD+all_cluster_ibd$N_LLD)
+write.table(all_cluster_ibd, "07.Subspecies/all_cluster_ibd.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+
+all_cluster_ibd_fisher<-matrix(NA, ncol = 2) %>% as.data.frame
+colnames(all_cluster_ibd_fisher)<-c("Species", "P")
+for (i in 1:ncol(all_msv_cluster_sub)) {
+#  i<-1
+  Species<-colnames(all_msv_cluster_sub)[i]
+  fisher_i<-all_cluster_ibd[all_cluster_ibd$Species==Species,c(3:4)] %>% fisher_test(., simulate.p.value = TRUE, B = 99999)
+#  colnames(fisher_i)<-c("Species", "P")
+  all_cluster_ibd_fisher<-rbind(all_cluster_ibd_fisher, c(Species,fisher_i$p))
+}
+
+all_cluster_ibd_fisher<-na.omit(all_cluster_ibd_fisher)
+all_cluster_ibd_fisher$P<-as.numeric(all_cluster_ibd_fisher$P)
+all_cluster_ibd_fisher$FDR <- p.adjust(all_cluster_ibd_fisher$P, method = "BH")
+write.table(all_cluster_ibd_fisher, "07.Subspecies/all_cluster_ibd_fisher.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+
+```

@@ -1,0 +1,182 @@
+---
+title: "SV-based microbial GWAS on IBD"
+author: "Daoming Wang"
+date: "2021/10/25"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Import
+
+Import packages and functions.
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+suppressMessages(source("functions.R"))
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/All/all_abun.RData")
+load("01.cleanData/All/all_dsv.RData")
+load("01.cleanData/All/all_vsv.RData")
+load("01.cleanData/All/all_phen.RData")
+
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+vsv_info<-read.table("01.cleanData/Info/vsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F, quote = "")
+dsv_info<-read.table("01.cleanData/Info/dsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+vsv_order<-read.table("01.cleanData/Info/vsv_cluster_order.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+dsv_order<-read.table("01.cleanData/Info/dsv_cluster_order.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+load("01.cleanData/Info/pseudo_genome_cyto.RData")
+```
+
+## 2 Associations between SVs and IBD
+
+### 2.1 Preparation
+
+```{r 2.1}
+if (!dir.exists("08.Microbial_GWAS_IBD")) {dir.create("08.Microbial_GWAS_IBD")}
+if (!dir.exists("08.Microbial_GWAS_IBD/RData")) {dir.create("08.Microbial_GWAS_IBD/RData")}
+
+all_abun_clr<-abundances(x=as.data.frame(na.omit(all_abun)), transform="clr") %>% as.data.frame
+all_abun_clr <- all_abun_clr[match(rownames(all_abun), rownames(all_abun_clr)),]
+rownames(all_abun_clr) <- rownames(all_abun)
+all_covar<-cbind(all_phen,all_abun_clr)
+
+covar <- c("host_Sex", "host_Age", "host_BMI", "Read_count")
+```
+
+
+### 2.2 GWAS
+
+Linear model with covariates: age, gender, BMI, read count and corresponding species relative abundance.
+
+```{r 2.2, eval = FALSE}
+vsv_disease_lr_adjAbun_res<-lr_btw_mats_adjAbun(all_phen[,c("IBD")], all_vsv, all_covar, covar, all_abun_clr,info, 9)
+vsv_disease_lr_adjAbun_res$Y<-"IBD"
+save(vsv_disease_lr_adjAbun_res, file = "08.Microbial_GWAS_IBD/RData/vsv_disease_lr_adjAbun_res.RData")
+
+dsv_disease_lr_adjAbun_res<-lr_btw_mats_adjAbun(all_phen[,c("IBD")], all_dsv, all_covar, covar, all_abun_clr,info, 9)
+dsv_disease_lr_adjAbun_res$Y<-"IBD"
+save(dsv_disease_lr_adjAbun_res, file = "08.Microbial_GWAS_IBD/RData/dsv_disease_lr_adjAbun_res.RData")
+```
+
+
+## 3 Visualize results
+
+### 3.1 vSV
+
+```{r 3.1}
+load("08.Microbial_GWAS_IBD/RData/vsv_disease_lr_adjAbun_res.RData")
+vsv_disease_order<-left_join(vsv_order,vsv_disease_lr_adjAbun_res, by = c("SV_Name"="X"))
+
+vsv_disease_granges<-GRanges(seqnames = info$Short_name[match(vsv_disease_order$organism, info$organism)],
+               ranges   = IRanges(start = vsv_disease_order$Cluster_order, width = 1), 
+               pval     = vsv_disease_order$p)
+
+pdf("08.Microbial_GWAS_IBD/vsv_disease_kp_manhattan.pdf",width = 4,height = 8)
+pp <- getDefaultPlotParams(plot.type=1)
+pp$leftmargin <- 0.5
+pp$rightmargin<-0.01
+pp$data1height <- 300
+pp$data1inmargin<-60
+vsv_disease_kp <- plotKaryotype(genome = pseudo_genome_cyto$pseudo_genome_vsv, cytobands = pseudo_genome_cyto$pseudo_cyto_vsv,plot.type=1, plot.params = pp)
+kpAxis(vsv_disease_kp, ymin=0, ymax=12,cex = 0.5)
+vsv_disease_kp <- kpPlotManhattan(vsv_disease_kp, data=vsv_disease_granges, points.cex = 0.5,points.col = adjustcolor( wes_palette("Darjeeling1"), alpha.f = 0.7),
+                                  genomewideline = 0.05/nrow(vsv_disease_order))
+dev.off()
+
+```
+
+
+### 3.2 dsv
+
+```{r 3.2}
+load("08.Microbial_GWAS_IBD/RData/dsv_disease_lr_adjAbun_res.RData")
+dsv_disease_order<-left_join(dsv_order,dsv_disease_lr_adjAbun_res, by = c("SV_Name"="X"))
+dsv_disease_order$p[is.na(dsv_disease_order$p)]<-1
+dsv_disease_granges<-GRanges(seqnames = info$Short_name[match(dsv_disease_order$organism, info$organism)],
+               ranges   = IRanges(start = dsv_disease_order$Cluster_order, width = 1), 
+               pval     = dsv_disease_order$p)
+
+pdf("08.Microbial_GWAS_IBD/dsv_disease_kp_manhattan.pdf",width = 8,height = 8)
+pp <- getDefaultPlotParams(plot.type=1)
+pp$leftmargin <- 0.5
+pp$rightmargin<-0.01
+pp$data1height <- 300
+pp$data1inmargin<-60
+dsv_disease_kp <- plotKaryotype(genome = pseudo_genome_cyto$pseudo_genome_dsv, cytobands = pseudo_genome_cyto$pseudo_cyto_dsv,plot.type=1, plot.params = pp)
+kpAxis(dsv_disease_kp, ymin=0, ymax=18,cex = 0.5)
+dsv_disease_kp <- kpPlotManhattan(dsv_disease_kp, data=dsv_disease_granges, points.cex = 0.5,points.col = adjustcolor( wes_palette("Darjeeling1"), alpha.f = 0.7),
+                                  genomewideline = 0.05/nrow(dsv_disease_order))
+dev.off()
+
+```
+
+## 4 Summary results
+
+### 4.1 vSV
+
+```{r 4.1}
+vsv_disease.sig<-vsv_disease_order[vsv_disease_order$bonferroni.p<0.05,]
+vsv_disease.sig.anno<-left_join(vsv_disease.sig, vsv_info, by =  "SV_Name")
+write.table(vsv_disease.sig.anno,"08.Microbial_GWAS_IBD/vsv_disease.sig.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+
+dsv_disease.sig<-dsv_disease_order[dsv_disease_order$bonferroni.p<0.05,]
+dsv_disease.sig.anno<-left_join(dsv_disease.sig, dsv_info, by =  "SV_Name")
+dsv_disease.sig.anno<-dsv_disease.sig.anno[!is.na(dsv_disease.sig.anno$p),]
+write.table(dsv_disease.sig.anno,"08.Microbial_GWAS_IBD/dsv_disease.sig.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+```
+
+
+## 5 Examples
+
+```{r 5}
+
+df<-data.frame(IBD = all_phen$IBD,
+               SV = all_dsv$`Anaerostipes hadrus:1669_1670`) %>% na.omit
+table(df)
+
+ibd_sv_tbl <- table(df$IBD,df$SV) 
+chisq.test(ibd_sv_tbl) 
+df$IBD<-as.factor(df$IBD)
+df$SV<-as.factor(df$SV)
+p_ibd_sv<-ggplot(data=df)+
+  geom_mosaic(aes(x = product(SV), fill=IBD))+
+  ylab("IBD")+
+  xlab("SV status")+
+  scale_fill_manual(values=mycolor2_green_blue) +
+  theme_tufte()+
+  theme(axis.ticks.length = unit(0, "cm"), 
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        #axis.text.y = element_text(colour = "white"), 
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5))
+pdf("08.Microbial_GWAS_IBD/IBD_A.hadrus_1669.pdf",height = 2.5, width = 2.5)
+print(p_ibd_sv)
+dev.off()
+```

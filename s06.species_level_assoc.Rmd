@@ -1,0 +1,371 @@
+---
+title: "Species level association"
+author: "Daoming Wang"
+date: "2021/10/9"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+### 1.1 Import
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+```{r 1.2}
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+fmetab_info<-read.csv("01.cleanData/Info/fmetab_info.tsv",sep = "\t",header = T,quote = "",check.names = F)
+
+load("01.cleanData/All/all_phen.RData")
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/all_abun.RData")
+load("01.cleanData/All/distMat/all_msv_dist_std.RData")
+
+load("01.cleanData/LLD/lld_phen.RData")
+load("01.cleanData/LLD/lld_fmetab.RData")
+load("01.cleanData/LLD/lld_abun.RData")
+load("01.cleanData/LLD/distMat/lld_msv_dist_std.RData")
+
+load("01.cleanData/IBD/ibd_phen.RData")
+load("01.cleanData/IBD/ibd_fmetab.RData")
+load("01.cleanData/IBD/ibd_abun.RData")
+load("01.cleanData/IBD/distMat/ibd_msv_dist_std.RData")
+```
+
+
+## 2 Species-level association with fecal metabolites
+
+### 2.1 Prepare abundance table
+
+```{r 2.1}
+if (!dir.exists("06.Species_level_assoc")) {dir.create("06.Species_level_assoc")}
+if (!dir.exists("06.Species_level_assoc/RData")) {dir.create("06.Species_level_assoc/RData")}
+
+## Prepare covariate table
+# all
+all_abun_clr<-abundances(x=as.data.frame(na.omit(all_abun)), transform="clr") %>% as.data.frame
+all_abun_clr <- all_abun_clr[match(rownames(all_abun), rownames(all_abun_clr)),]
+rownames(all_abun_clr) <- rownames(all_abun)
+all_covar<-cbind(all_phen,all_abun_clr)
+
+# lld
+lld_abun_clr<-abundances(x=as.data.frame(na.omit(lld_abun)), transform="clr") %>% as.data.frame
+lld_abun_clr <- lld_abun_clr[match(rownames(lld_abun), rownames(lld_abun_clr)),]
+rownames(lld_abun_clr) <- rownames(lld_abun)
+lld_covar<-cbind(lld_phen,lld_abun_clr)
+
+# ibd
+ibd_abun_clr<-abundances(x=as.data.frame(na.omit(ibd_abun)), transform="clr") %>% as.data.frame
+ibd_abun_clr <- ibd_abun_clr[match(rownames(ibd_abun), rownames(ibd_abun_clr)),]
+rownames(ibd_abun_clr) <- rownames(ibd_abun)
+ibd_covar<-cbind(ibd_phen,ibd_abun_clr)
+
+covar1 <- c("LC.COLUMN", "Amount_sample_gram", "metabolon_Month_in_freezer","host_Sex", "host_Age", "host_BMI", "Read_count")
+covar2 <- c("LC.COLUMN", "Amount_sample_gram", "metabolon_Month_in_freezer","host_Sex", "host_Age", "host_BMI", "Read_count", "IBD")
+```
+
+
+### 2.2 Association between genetic makeup and fecal metabolites
+
+```{r 2.2,eval=F}
+## all
+all_adonis_res <- my_adonis_terms_adjAbun(all_msv_dist_std, all_fmetab, all_covar, covar2, info)
+save(all_adonis_res, file = "06.Species_level_assoc/RData/all_adonis_res.RData")
+
+lld_adonis_res <- my_adonis_terms_adjAbun(lld_msv_dist_std, lld_fmetab, lld_covar, covar1, info)
+save(lld_adonis_res, file = "06.Species_level_assoc/RData/lld_adonis_res.RData")
+
+ibd_adonis_res <- my_adonis_terms_adjAbun(ibd_msv_dist_std[c(20)], ibd_fmetab, ibd_covar, covar1, info)
+save(ibd_adonis_res, file = "06.Species_level_assoc/RData/ibd_adonis_res.RData")
+
+
+## meta-analysis
+load("06.Species_level_assoc/RData/all_adonis_res.RData")
+load("06.Species_level_assoc/RData/lld_adonis_res.RData")
+load("06.Species_level_assoc/RData/ibd_adonis_res.RData")
+
+all_adonis_res.table <- all_adonis_res$table
+lld_adonis_res.table <- lld_adonis_res$table
+ibd_adonis_res.table <- ibd_adonis_res$table
+
+cbind_adonis_res.table<-cbind(all_adonis_res.table,lld_adonis_res.table,ibd_adonis_res.table)[,-c(8,9,15,16)]
+colnames(cbind_adonis_res.table)<-c("Species","Fecal_metabolite",
+                                    paste("All.",colnames(cbind_adonis_res.table)[3:7],sep = ""),
+                                    paste("LLD.",colnames(cbind_adonis_res.table)[3:7],sep = ""),
+                                    paste("IBD.",colnames(cbind_adonis_res.table)[3:7],sep = ""))
+adonis_res <- my_batch_meta_p(cbind_adonis_res.table, c("LLD", "IBD"), c(10,15), c(9,14))
+save(adonis_res, file = "06.Species_level_assoc/RData/adonis_res.RData")
+```
+
+
+### 2.3 Association between abundance and fecal metabolites
+
+```{r 2.3, eval=F}
+lld_abun_fmetab_lm_res  <- lm_btw_mats(lld_fmetab, lld_abun_clr[,info$organism], lld_covar, covar1)
+ibd_abun_fmetab_lm_res  <- lm_btw_mats(ibd_fmetab, ibd_abun_clr[,info$organism], ibd_covar, covar1)
+
+# meta-analysis
+cbind_abun_fmetab_lm_edge<-cbind(lld_abun_fmetab_lm_res, ibd_abun_fmetab_lm_res)[,-c(15,16)]
+colnames(cbind_abun_fmetab_lm_edge)<-c("Fecal_metabolite","Species",
+                                paste("LLD.",colnames(cbind_abun_fmetab_lm_edge)[3:14],sep = ""),
+                                paste("IBD",colnames(cbind_abun_fmetab_lm_edge)[3:14],sep = ""))
+all_abun_fmetab_lm_res <- my_batch_meta_lm(cbind_abun_fmetab_lm_edge, c("LLD", "IBD"), c(3,15), c(4,16))
+save(all_abun_fmetab_lm_res, file = "06.Species_level_assoc/RData/all_abun_fmetab_lm_res.RData")
+```
+
+## 3 Species-level association with IBD
+
+### 3.1 Association between SV and IBD
+
+```{r 3.1,eval=F}
+##all
+all_disease_adonis_res <- my_adonis_terms_adjAbun(all_msv_dist_std, as.data.frame(all_phen[,c("IBD")]), all_covar, covar1, info,n_parallel = 4,n_permutations = 9999)
+all_disease_adonis_res$table$BA<-"IBD"
+colnames(all_disease_adonis_res$table)[2]<-"IBD"
+colnames(all_disease_adonis_res$r2)<-"IBD"
+colnames(all_disease_adonis_res$P)<-"IBD"
+colnames(all_disease_adonis_res$FDR)<-"IBD"
+save(all_disease_adonis_res, file = "06.Species_level_assoc/RData/all_disease_adonis_res.RData")
+```
+
+### 3.2 Association between abundance and IBD
+
+```{r 3.2,eval=F}
+all_disease_abun_lm_res<-lm_btw_mats_v2(all_abun_clr[,info$organism], as.data.frame(all_phen[,c("IBD")]), all_covar, covar1) # [,info$organism]
+all_disease_abun_lm_res$X<-"IBD"
+write.table(all_disease_abun_lm_res, "06.Species_level_assoc/all_disease_abun_lm_res.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+
+all_disease_abun_lm.sig<-all_disease_abun_lm_res[all_disease_abun_lm_res$fdr.p<0.05 & (!is.na(all_disease_abun_lm_res$fdr.p)),]
+write.table(all_disease_abun_lm.sig, "06.Species_level_assoc/all_disease_abun_lm.sig.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+
+```
+
+### 3.3 Association between fecal metabolites and IBD
+
+```{r 3.3}
+all_disease_fmetab_lm_res<-lm_btw_mats_v2(all_fmetab, as.data.frame(all_phen[,c("IBD")]), all_covar, covar1)
+all_disease_fmetab_lm_res$X<-"IBD"
+write.table(all_disease_fmetab_lm_res,"06.Species_level_assoc/all_disease_fmetab_lm_res.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+
+fmetab_info$IBD_associated<-"No"
+fmetab_info$IBD_associated[all_disease_fmetab_lm_res$fdr.p<0.05 & (!is.na(all_disease_fmetab_lm_res$fdr.p))]<-"Yes"
+write.table(fmetab_info,"01.cleanData/Info/fmetab_info_addIBD.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+
+all_disease_fmetab_lm.sig<-all_disease_fmetab_lm_res[all_disease_fmetab_lm_res$fdr.p<0.05 & (!is.na(all_disease_fmetab_lm_res$fdr.p)),]
+write.table(all_disease_fmetab_lm.sig, "06.Species_level_assoc/all_disease_fmetab_lm.sig.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+
+```
+
+
+
+
+## 4 Summary and visualization
+
+### 4.1 Preparation
+
+```{r 4.1}
+fmetab_info<-read.csv("01.cleanData/Info/fmetab_info_addIBD.tsv",sep = "\t",header = T,quote = "",check.names = F)
+
+
+load("06.Species_level_assoc/RData/adonis_res.RData")
+load( "06.Species_level_assoc/RData/all_disease_adonis_res.RData")
+
+all_disease_adonis<-all_disease_adonis_res$table
+
+write.table(all_disease_adonis, "06.Species_level_assoc/all_disease_adonis.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+
+species_r_n_order<- all_disease_adonis$Species[order(all_disease_adonis$R2, decreasing = T)]
+
+#species_sgv_n_long<-gather(info[,c(10,12,13)], "type", "number", c(2:3))
+
+p_r_disease_species<-ggplot(all_disease_adonis, aes(x=Species, y=R2))+
+  geom_bar(aes(fill = R2),position = "stack",stat="identity")+
+  xlab(NULL)+
+  ylab("R-square")+
+  scale_x_discrete(limits = species_r_n_order)+
+  scale_y_continuous(expand = c(0,0))+
+  scale_fill_gradientn(colours = wes_palette("Zissou1", 100, type = "continuous"))+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        plot.margin=unit(c(1,1,1,1),"cm"),
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position="none",
+        legend.key = element_rect(fill = NA), 
+        legend.text = element_text(size = 10),
+        panel.grid.major = element_line(colour = NA,linetype = "dashed",size = 0.25),
+        panel.grid.minor = element_line(colour = NA), 
+        panel.background = element_rect(fill = NA))
+
+pdf("06.Species_level_assoc/p_r_disease_species.pdf", height = 3, width = 6)
+print(p_r_disease_species)
+dev.off()
+
+print(p_r_disease_species)
+
+```
+
+### 4.2 Genetic makeup and IBD
+
+### 4.3 Species abundance and IBD
+
+### 4.4 Genetic make up and fecal metabolites
+
+```{r 4.4}
+adonis_res.table<-adonis_res$table
+adonis_res.table.anno<-full_join(adonis_res.table, fmetab_info, by = c("Fecal_metabolite"="all_fmetab.name"))
+adonis_res.table.anno.sig<-adonis_res.table.anno[adonis_res.table.anno$Meta.p<0.001 &
+                                                   adonis_res.table.anno$LLD.P<0.05 &
+                                                   adonis_res.table.anno$IBD.P<0.05 &
+                                                   adonis_res.table.anno$Meta.hetero.p>0.05 &
+                                                   (!is.na(adonis_res.table.anno$Meta.p<0.001 & adonis_res.table.anno$Meta.hetero.p>0.05)) &
+                                                   (!grepl("X__",adonis_res.table.anno$Fecal_metabolite)),]
+
+
+
+adonis_fmetab.sig.phen  <- adonis_res.table.anno.sig$`SUB PATHWAY`%>%
+  as.character(.) %>%
+  .[!duplicated(.)]
+adonis_fmetab.sig.taxa <- adonis_res.table.anno.sig$Species %>%
+  as.character(.) %>%
+  .[!duplicated(.)] %>%
+  sort(.,decreasing = F)
+
+## circos plot
+adonis_fmetab_count<-NULL
+for (pheno in adonis_fmetab.sig.phen) {
+#  pheno <-"deoxycholate"
+  adonis_phen_df<-adonis_res.table.anno.sig[adonis_res.table.anno.sig$`SUB PATHWAY`==pheno,]$Species %>%
+    str_replace_all(.,"\\:\\d+_\\d+.*", "") %>%
+    table %>%
+    as.data.frame
+  colnames(adonis_phen_df)<-c("Species", "Count")
+  adonis_phen_df<-data.frame(Fecal_metabolite = rep(pheno,nrow(adonis_phen_df)), adonis_phen_df)
+  adonis_fmetab_count<-rbind(adonis_fmetab_count,adonis_phen_df)
+}
+
+adonis_fmetab_count <- adonis_fmetab_count[order(adonis_fmetab_count$Count),]
+
+adonis_fmetab_count_species_order<-adonis_fmetab_count %>% group_by(Species) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),] %>% .$Species %>% as.character
+adonis_fmetab_count_fmetab_order<-adonis_fmetab_count %>% group_by(Fecal_metabolite) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),]  %>% .$Fecal_metabolite %>% as.character
+
+pdf("06.Species_level_assoc/adonis_fmetab.circos.pdf", width = 40, height = 40)
+circos.par(start.degree = 0) # ,xaxis.clock.wise = F , "clock.wise" = F
+chordDiagram(adonis_fmetab_count,annotationTrack = "grid",
+             grid.col =  c(rev(wes_palette("Darjeeling1", length(adonis_fmetab_count_fmetab_order), type = "continuous")),
+                           rep('grey',length(adonis_fmetab_count_species_order))),
+             order = c(adonis_fmetab_count_fmetab_order,
+                       rev(adonis_fmetab_count_species_order)),
+             big.gap = 5,
+             preAllocateTracks = list(track.margin = c(0, uh(150, "mm")), 
+                                      track.height = max(strwidth(unlist(dimnames(adonis_fmetab_count)))))
+             )
+circos.track(track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,cex = 2.5,
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+dev.off()
+circos.clear()
+
+## Example
+
+species_short_name<-"F.prausnitzii"
+species_dis<-all_msv_dist_std[[paste("msv_",info$organism[match(species_short_name,info$Short_name)],sep = "")]]
+
+ba_name<-"N_acetylglutamate"
+ba_vec<-all_fmetab[ba_name] %>% na.omit
+
+species_ba_inter<-intersect(rownames(species_dis),rownames(ba_vec))
+
+species_dis_input<-species_dis[match(species_ba_inter,rownames(species_dis)),
+                               match(species_ba_inter, colnames(species_dis))]
+ba_vec_input<-ba_vec[match(species_ba_inter, rownames(ba_vec)),]
+
+species_dis_input_mds<-cmdscale(species_dis_input, k=5, eig = T)
+species_dis_input.pcoa <- data.frame(species_dis_input_mds$points)
+
+p_spe_ba_pcoa<-ggplot(species_dis_input.pcoa,aes(X1,X2, color = qtrans(ba_vec_input)))+
+  geom_point(size = 2,alpha = 0.8)+
+  xlab(paste("PCo1=",round(species_dis_input_mds$eig[1],digits = 2),"%",sep = ""))+
+  ylab(paste("PCo2=",round(species_dis_input_mds$eig[2],digits = 2),"%",sep = ""))+
+  scale_color_distiller(palette = "Spectral")+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = 'right',
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA),
+        panel.background = element_rect(fill = NA))
+
+pdf("06.Species_level_assoc/F.prausnitziiN_acetylglutamate.genetics.pdf",width = 4, height = 3)
+print(p_spe_ba_pcoa)
+dev.off()
+
+## 
+
+species_short_name<-"B.wexlerae"
+species_dis<-all_msv_dist_std[[paste("msv_",info$organism[match(species_short_name,info$Short_name)],sep = "")]]
+
+ba_name<-"deoxycholate"
+ba_vec<-all_fmetab[ba_name] %>% na.omit
+
+species_ba_inter<-intersect(rownames(species_dis),rownames(ba_vec))
+
+species_dis_input<-species_dis[match(species_ba_inter,rownames(species_dis)),
+                               match(species_ba_inter, colnames(species_dis))]
+ba_vec_input<-ba_vec[match(species_ba_inter, rownames(ba_vec)),]
+
+species_dis_input_mds<-cmdscale(species_dis_input, k=5, eig = T)
+species_dis_input.pcoa <- data.frame(species_dis_input_mds$points)
+
+p_spe_ba_pcoa<-ggplot(species_dis_input.pcoa,aes(X1,X2, color = qtrans(ba_vec_input)))+
+  geom_point(size = 2,alpha = 0.8)+
+  xlab(paste("PCo1=",round(species_dis_input_mds$eig[1],digits = 2),"%",sep = ""))+
+  ylab(paste("PCo2=",round(species_dis_input_mds$eig[2],digits = 2),"%",sep = ""))+
+  scale_color_distiller(palette = "Spectral")+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = 'right',
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA),
+        panel.background = element_rect(fill = NA))
+
+pdf("06.Species_level_assoc/B.wexlerae_deoxycholate.genetics.pdf",width = 4, height = 3)
+print(p_spe_ba_pcoa)
+dev.off()
+
+```
+
+### 4.5 Species abundance and fecal metabolites
+
+
+

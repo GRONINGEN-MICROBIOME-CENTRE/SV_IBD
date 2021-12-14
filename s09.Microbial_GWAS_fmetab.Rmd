@@ -1,0 +1,343 @@
+---
+title: "Microbial GWAS"
+author: "Daoming Wang"
+date: "2021/10/21"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Import
+
+Import packages and functions.
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+suppressMessages(source("functions.R"))
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/LLD/lld_dsv.RData")
+load("01.cleanData/LLD/lld_vsv.RData")
+load("01.cleanData/LLD/lld_fmetab.RData")
+load("01.cleanData/LLD/lld_phen.RData")
+load("01.cleanData/LLD/lld_abun.RData")
+load("01.cleanData/LLD/lld_msv_pc_cum0.6.RData")
+
+load("01.cleanData/IBD/ibd_dsv.RData")
+load("01.cleanData/IBD/ibd_vsv.RData")
+load("01.cleanData/IBD/ibd_fmetab.RData")
+load("01.cleanData/IBD/ibd_phen.RData")
+load("01.cleanData/IBD/ibd_abun.RData")
+load("01.cleanData/IBD/ibd_msv_pc_cum0.6.RData")
+
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+vsv_info<-read.table("01.cleanData/Info/vsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F, quote = "")
+dsv_info<-read.table("01.cleanData/Info/dsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+fmetab_info<-read.csv("01.cleanData/Info/fmetab_info_addIBD.tsv", sep = "\t",header = T, check.names = F,quote = "")
+```
+
+
+## 2 Associations between SVs and fecal metabolites
+
+### 2.1 Preparation
+
+```{r 2.1}
+if (!dir.exists("09.Microbial_GWAS_fmetab")) {dir.create("09.Microbial_GWAS_fmetab")}
+if (!dir.exists("09.Microbial_GWAS_fmetab/RData")) {dir.create("09.Microbial_GWAS_fmetab/RData")}
+
+# lld
+lld_abun_clr<-abundances(x=as.data.frame(na.omit(lld_abun)), transform="clr") %>% as.data.frame
+lld_abun_clr <- lld_abun_clr[match(rownames(lld_abun), rownames(lld_abun_clr)),]
+rownames(lld_abun_clr) <- rownames(lld_abun)
+lld_covar<-cbind(lld_phen,lld_abun_clr)
+
+# ibd
+ibd_abun_clr<-abundances(x=as.data.frame(na.omit(ibd_abun)), transform="clr") %>% as.data.frame
+ibd_abun_clr <- ibd_abun_clr[match(rownames(ibd_abun), rownames(ibd_abun_clr)),]
+rownames(ibd_abun_clr) <- rownames(ibd_abun)
+ibd_covar<-cbind(ibd_phen,ibd_abun_clr)
+
+covar <- c("LC.COLUMN", "Amount_sample_gram", "metabolon_Month_in_freezer","host_Sex", "host_Age", "host_BMI", "Read_count")
+```
+
+### 2.2 linear model 1
+
+Linear model with covariates: age, gender, BMI, read count and corresponding species relative abundance.
+
+```{r 2.2, eval = FALSE}
+## vsv
+lld_vsv_fmetab_lm_adjAbun_res<-lm_btw_mats_adjAbun(lld_fmetab,lld_vsv,lld_phen,covar,lld_abun_clr,info, 9)
+save(lld_vsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/lld_vsv_fmetab_lm_adjAbun_res.RData")
+
+ibd_vsv_fmetab_lm_adjAbun_res<-lm_btw_mats_adjAbun(ibd_fmetab,ibd_vsv,ibd_phen,covar,ibd_abun_clr,info,9)
+save(ibd_vsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/ibd_vsv_fmetab_lm_adjAbun_res.RData")
+
+# meta-analysis
+cbind_vsv_fmetab_lm_adjAbun_edge<-cbind(lld_vsv_fmetab_lm_adjAbun_res, ibd_vsv_fmetab_lm_adjAbun_res)[,-c(16,17)]
+colnames(cbind_vsv_fmetab_lm_adjAbun_edge)<-c("BA","SV",
+                                paste("LLD.",colnames(cbind_vsv_fmetab_lm_adjAbun_edge)[3:15],sep = ""),
+                                paste("IBD.",colnames(cbind_vsv_fmetab_lm_adjAbun_edge)[3:15],sep = ""))
+all_vsv_fmetab_lm_adjAbun_res <- my_batch_meta_lm(cbind_vsv_fmetab_lm_adjAbun_edge, c("LLD", "300OB"), c(3,16), c(4,17))
+save(all_vsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/all_vsv_fmetab_lm_adjAbun_res.RData")
+
+## dsv
+lld_dsv_fmetab_lm_adjAbun_res<-lm_btw_mats_adjAbun(lld_fmetab,lld_dsv,lld_phen,covar,lld_abun_clr,info, 9)
+save(lld_dsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/lld_dsv_fmetab_lm_adjAbun_res.RData")
+
+ibd_dsv_fmetab_lm_adjAbun_res<-lm_btw_mats_adjAbun(ibd_fmetab,ibd_dsv,ibd_phen,covar,ibd_abun_clr,info,9)
+save(ibd_dsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/ibd_dsv_fmetab_lm_adjAbun_res.RData")
+
+# meta-analysis
+cbind_dsv_fmetab_lm_adjAbun_edge<-cbind(lld_dsv_fmetab_lm_adjAbun_res, ibd_dsv_fmetab_lm_adjAbun_res)[,-c(16,17)]
+colnames(cbind_dsv_fmetab_lm_adjAbun_edge)<-c("BA","SV",
+                                paste("LLD.",colnames(cbind_dsv_fmetab_lm_adjAbun_edge)[3:15],sep = ""),
+                                paste("IBD.",colnames(cbind_dsv_fmetab_lm_adjAbun_edge)[3:15],sep = ""))
+all_dsv_fmetab_lm_adjAbun_res <- my_batch_meta_lm(cbind_dsv_fmetab_lm_adjAbun_edge, c("LLD", "300OB"), c(3,16), c(4,17))
+save(all_dsv_fmetab_lm_adjAbun_res, file = "09.Microbial_GWAS_fmetab/RData/all_dsv_fmetab_lm_adjAbun_res.RData")
+```
+
+
+### 2.3 linear model 2
+
+Linear model with covariates: age, gender, BMI, read count, corresponding species relative abundance, and genetic structure PCs.
+
+
+```{r 2.3, eval=FALSE}
+## vsv
+lld_vsv_fmetab_lm_adjAbunPCs_res <- lm_btw_mats_adjAbunPCs(lld_fmetab,lld_vsv,lld_phen,covar,lld_abun_clr,lld_msv_pc_cum0.6,info, 9)
+save(lld_vsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/lld_vsv_fmetab_lm_adjAbunPCs_res.RData")
+
+ibd_vsv_fmetab_lm_adjAbunPCs_res <- lm_btw_mats_adjAbunPCs(ibd_fmetab, ibd_vsv, ibd_phen, covar, ibd_abun_clr, ibd_msv_pc_cum0.6, info, 9)
+save(ibd_vsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/ibd_vsv_fmetab_lm_adjAbunPCs_res.RData")
+
+# meta-analysis
+cbind_vsv_fmetab_lm_adjAbunPCs_edge<-cbind(lld_vsv_fmetab_lm_adjAbunPCs_res, ibd_vsv_fmetab_lm_adjAbunPCs_res)[,-c(16,17)]
+colnames(cbind_vsv_fmetab_lm_adjAbunPCs_edge)<-c("BA","SV",
+                                paste("LLD.",colnames(cbind_vsv_fmetab_lm_adjAbunPCs_edge)[3:15],sep = ""),
+                                paste("X300OB.",colnames(cbind_vsv_fmetab_lm_adjAbunPCs_edge)[3:15],sep = ""))
+all_vsv_fmetab_lm_adjAbunPCs_res <- my_batch_meta_lm(cbind_vsv_fmetab_lm_adjAbunPCs_edge, c("LLD", "IBD"), c(3,16), c(4,17))
+save(all_vsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/all_vsv_fmetab_lm_adjAbunPCs_res.RData")
+
+## dsv
+lld_dsv_fmetab_lm_adjAbunPCs_res <- lm_btw_mats_adjAbunPCs(lld_fmetab,lld_dsv,lld_phen,covar,lld_abun_clr,lld_msv_pc_cum0.6,info, 9)
+save(lld_dsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/lld_dsv_fmetab_lm_adjAbunPCs_res.RData")
+
+ibd_dsv_fmetab_lm_adjAbunPCs_res <- lm_btw_mats_adjAbunPCs(ibd_fmetab, ibd_dsv, ibd_phen, covar, ibd_abun_clr, ibd_msv_pc_cum0.6, info, 9)
+save(ibd_dsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/ibd_dsv_fmetab_lm_adjAbunPCs_res.RData")
+
+# meta-analysis
+cbind_dsv_fmetab_lm_adjAbunPCs_edge<-cbind(lld_dsv_fmetab_lm_adjAbunPCs_res, ibd_dsv_fmetab_lm_adjAbunPCs_res)[,-c(16,17)]
+colnames(cbind_dsv_fmetab_lm_adjAbunPCs_edge)<-c("BA","SV",
+                                paste("LLD.",colnames(cbind_dsv_fmetab_lm_adjAbunPCs_edge)[3:15],sep = ""),
+                                paste("X300OB.",colnames(cbind_dsv_fmetab_lm_adjAbunPCs_edge)[3:15],sep = ""))
+all_dsv_fmetab_lm_adjAbunPCs_res <- my_batch_meta_lm(cbind_dsv_fmetab_lm_adjAbunPCs_edge, c("LLD", "IBD"), c(3,16), c(4,17))
+save(all_dsv_fmetab_lm_adjAbunPCs_res, file = "09.Microbial_GWAS/RData/all_dsv_fmetab_lm_adjAbunPCs_res.RData")
+```
+
+
+## 3 Summary results
+
+### 3.1 vSV
+
+```{r 3.1}
+load("09.Microbial_GWAS_fmetab/RData/all_vsv_fmetab_lm_adjAbun_res.RData")
+load("09.Microbial_GWAS_fmetab/RData/all_vsv_fmetab_lm_adjAbunPCs_res.RData")
+
+colnames(all_vsv_fmetab_lm_adjAbun_res)[1]    <- "Fecal_metabolite"
+colnames(all_vsv_fmetab_lm_adjAbunPCs_res)[1] <- "Fecal_metabolite"
+
+colnames(all_vsv_fmetab_lm_adjAbun_res)[c(3:ncol(all_vsv_fmetab_lm_adjAbun_res))]<-paste(
+  "Model1.",
+  colnames(all_vsv_fmetab_lm_adjAbun_res)[c(3:ncol(all_vsv_fmetab_lm_adjAbun_res))],
+  sep = "")
+
+colnames(all_vsv_fmetab_lm_adjAbunPCs_res)[c(3:ncol(all_vsv_fmetab_lm_adjAbunPCs_res))]<-paste(
+  "Model2.",
+  colnames(all_vsv_fmetab_lm_adjAbunPCs_res)[c(3:ncol(all_vsv_fmetab_lm_adjAbunPCs_res))],
+  sep = "")
+
+vsv_fmetab<-cbind(all_vsv_fmetab_lm_adjAbun_res, all_vsv_fmetab_lm_adjAbunPCs_res[,-c(1:2)])
+vsv_fmetab$Fecal_metabolite<-as.character(vsv_fmetab$Fecal_metabolite)
+
+## replicable associations
+vsv_fmetab.sig<-vsv_fmetab[vsv_fmetab$Model1.Meta.fdr.p<0.05 & (!is.na(vsv_fmetab$Model1.Meta.fdr.p)) &
+                             vsv_fmetab$Model1.Meta.hetero.p>0.05 & (!is.na(vsv_fmetab$Model1.Meta.hetero.p)) &
+                             vsv_fmetab$Model1.LLD.p<0.05 & (!is.na(vsv_fmetab$Model1.LLD.p)) &
+                             vsv_fmetab$Model1.IBD.p<0.05 & (!is.na(vsv_fmetab$Model1.IBD.p)) &
+                             vsv_fmetab$Model2.Meta.p<0.05 & (!is.na(vsv_fmetab$Model2.Meta.p)) &
+                             (!grepl("X__",vsv_fmetab$Fecal_metabolite)),]
+
+vsv_fmetab.sig.anno<-left_join(vsv_fmetab.sig, vsv_info, by = c("SV" = "SV_Name")) %>% left_join(., fmetab_info, by = c("Fecal_metabolite"="all_fmetab.name"))
+
+#str_replace_all(vsv_fmetab.sig$SV, ":.*", "") %>% unique %>% length
+save(vsv_fmetab.sig.anno, file = "09.Microbial_GWAS_fmetab/vsv_fmetab.sig.anno.RData")
+write.table(vsv_fmetab.sig.anno,"09.Microbial_GWAS_fmetab/vsv_fmetab.sig.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+
+## heterogeneous associations
+vsv_fmetab.het<-vsv_fmetab[vsv_fmetab$Model1.Meta.I2>0.75 & (!is.na(vsv_fmetab$Model1.Meta.I2)) &
+                             vsv_fmetab$Model1.Meta.hetero.p<0.05 & (!is.na(vsv_fmetab$Model1.Meta.hetero.p)) &
+                             ((vsv_fmetab$Model1.LLD.fdr.p<0.05 & (!is.na(vsv_fmetab$Model1.LLD.fdr.p))) |
+                             (vsv_fmetab$Model1.IBD.fdr.p<0.05 & (!is.na(vsv_fmetab$Model1.IBD.fdr.p)))) &
+                             (!grepl("X__",vsv_fmetab$Fecal_metabolite)),]
+vsv_fmetab.het.anno<-left_join(vsv_fmetab.het, vsv_info, by = c("SV" = "SV_Name"))%>% left_join(., fmetab_info, by = c("Fecal_metabolite"="all_fmetab.name"))
+save(vsv_fmetab.het.anno, file = "09.Microbial_GWAS_fmetab/vsv_fmetab.het.anno.RData")
+write.table(vsv_fmetab.het.anno,"09.Microbial_GWAS_fmetab/vsv_fmetab.het.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+```
+
+
+### 3.2 dSV
+
+```{r 3.2}
+load("09.Microbial_GWAS_fmetab/RData/all_dsv_fmetab_lm_adjAbun_res.RData")
+load("09.Microbial_GWAS_fmetab/RData/all_dsv_fmetab_lm_adjAbunPCs_res.RData")
+
+colnames(all_dsv_fmetab_lm_adjAbun_res)[1]    <- "Fecal_metabolite"
+colnames(all_dsv_fmetab_lm_adjAbunPCs_res)[1] <- "Fecal_metabolite"
+
+colnames(all_dsv_fmetab_lm_adjAbun_res)[c(3:ncol(all_dsv_fmetab_lm_adjAbun_res))]<-paste(
+  "Model1.",
+  colnames(all_dsv_fmetab_lm_adjAbun_res)[c(3:ncol(all_dsv_fmetab_lm_adjAbun_res))],
+  sep = "")
+
+colnames(all_dsv_fmetab_lm_adjAbunPCs_res)[c(3:ncol(all_dsv_fmetab_lm_adjAbunPCs_res))]<-paste(
+  "Model2.",
+  colnames(all_dsv_fmetab_lm_adjAbunPCs_res)[c(3:ncol(all_dsv_fmetab_lm_adjAbunPCs_res))],
+  sep = "")
+
+dsv_fmetab<-cbind(all_dsv_fmetab_lm_adjAbun_res, all_dsv_fmetab_lm_adjAbunPCs_res[,-c(1:2)])
+dsv_fmetab$Fecal_metabolite<-as.character(dsv_fmetab$Fecal_metabolite)
+
+## replicable associations
+dsv_fmetab.sig<-dsv_fmetab[dsv_fmetab$Model1.Meta.fdr.p<0.05 & (!is.na(dsv_fmetab$Model1.Meta.fdr.p)) &
+                             dsv_fmetab$Model1.Meta.hetero.p>0.05 & (!is.na(dsv_fmetab$Model1.Meta.hetero.p)) &
+                             dsv_fmetab$Model1.LLD.p<0.05 & (!is.na(dsv_fmetab$Model1.LLD.p)) &
+                             dsv_fmetab$Model1.IBD.p<0.05 & (!is.na(dsv_fmetab$Model1.IBD.p)) &
+                             dsv_fmetab$Model2.Meta.p<0.05 & (!is.na(dsv_fmetab$Model2.Meta.p)) &
+                             (!grepl("X__",dsv_fmetab$Fecal_metabolite)),]
+
+dsv_fmetab.sig.anno<-left_join(dsv_fmetab.sig, dsv_info, by = c("SV" = "SV_Name"))  %>% left_join(., fmetab_info, by = c("Fecal_metabolite"="all_fmetab.name"))
+#str_replace_all(dsv_fmetab.sig$SV, ":.*", "") %>% unique %>% length
+save(dsv_fmetab.sig.anno, file = "09.Microbial_GWAS_fmetab/dsv_fmetab.sig.anno.RData")
+write.table(dsv_fmetab.sig.anno,"09.Microbial_GWAS_fmetab/dsv_fmetab.sig.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+
+## heterogeneous associations
+dsv_fmetab.het<-dsv_fmetab[dsv_fmetab$Model1.Meta.I2>0.75 & (!is.na(dsv_fmetab$Model1.Meta.I2)) &
+                             dsv_fmetab$Model1.Meta.hetero.p<0.05 & (!is.na(dsv_fmetab$Model1.Meta.hetero.p)) &
+                             ((dsv_fmetab$Model1.LLD.fdr.p<0.05 & (!is.na(dsv_fmetab$Model1.LLD.fdr.p))) |
+                             (dsv_fmetab$Model1.IBD.fdr.p<0.05 & (!is.na(dsv_fmetab$Model1.IBD.fdr.p)))) &
+                             (!grepl("X__",dsv_fmetab$Fecal_metabolite)),]
+dsv_fmetab.het.anno<-left_join(dsv_fmetab.het, dsv_info, by = c("SV" = "SV_Name"))  %>% left_join(., fmetab_info, by = c("Fecal_metabolite"="all_fmetab.name"))
+save(dsv_fmetab.het.anno, file = "09.Microbial_GWAS_fmetab/dsv_fmetab.het.anno.RData")
+write.table(dsv_fmetab.het.anno,"09.Microbial_GWAS_fmetab/dsv_fmetab.het.anno.tsv",sep = "\t",col.names = T, row.names = F, quote = F)
+```
+
+### 2.2 Merge results
+
+```{r 2.2}
+load("09.Microbial_GWAS_fmetab/vsv_fmetab.sig.anno.RData")
+load("09.Microbial_GWAS_fmetab/dsv_fmetab.sig.anno.RData")
+
+sv_fmetab.sig.anno <- rbind(vsv_fmetab.sig.anno,dsv_fmetab.sig.anno)
+
+sv_fmetab.sig.subpath  <- sv_fmetab.sig.anno$Annotation%>%
+  as.character(.) %>%
+  .[!duplicated(.)]
+sv_fmetab.sig.sv <- sv_fmetab.sig.anno$SV %>%
+  as.character(.) %>%
+  .[!duplicated(.)] %>%
+  sort(.,decreasing = F)
+
+## circos plot
+sv_fmetab_count<-NULL
+for (pheno in sv_fmetab.sig.subpath) {
+#  pheno <-"Polyamine Metabolism"
+  sv_phen_df<-sv_fmetab.sig.anno[sv_fmetab.sig.anno$Annotation==pheno,]$SV %>%
+    str_replace_all(.,"\\:\\d+_\\d+.*", "") %>%
+    table %>%
+    as.data.frame
+  colnames(sv_phen_df)<-c("Species", "Count")
+  sv_phen_df<-data.frame(Fecal_metabolite = rep(pheno,nrow(sv_phen_df)), sv_phen_df)
+  sv_fmetab_count<-rbind(sv_fmetab_count,sv_phen_df)
+}
+
+sv_fmetab_count$Species<-info$Short_name[match(sv_fmetab_count$Species, info$organism)]
+
+
+sv_fmetab_count <- sv_fmetab_count[order(sv_fmetab_count$Count),]
+
+sv_fmetab_count_species_order<-sv_fmetab_count %>% group_by(Species) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),] %>% .$Species %>% as.character
+sv_fmetab_count_fmetab_order<-sv_fmetab_count %>% group_by(Fecal_metabolite) %>% summarise(sum(Count)) %>% .[order(.$`sum(Count)`, decreasing = T),]  %>% .$Fecal_metabolite %>% as.character
+
+pdf("09.Microbial_GWAS_fmetab/sv_fmetab.subpath.circos.pdf", width = 62, height = 62)
+circos.par(start.degree = 0) # ,xaxis.clock.wise = F , "clock.wise" = F
+chordDiagram(sv_fmetab_count,annotationTrack = "grid",
+             grid.col =  c(rev(wes_palette("Darjeeling1", length(sv_fmetab_count_fmetab_order), type = "continuous")),
+                           rep('grey',length(sv_fmetab_count_species_order))),
+             order = c(sv_fmetab_count_fmetab_order,
+                       rev(sv_fmetab_count_species_order)),
+             big.gap = 5,
+             preAllocateTracks = list(track.margin = c(0, uh(260, "mm")), 
+                                      track.height = max(strwidth(unlist(dimnames(sv_fmetab_count)))))
+             )
+circos.track(track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,cex = 2.5,
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5))
+}, bg.border = NA) # here set bg.border to NA is important
+
+dev.off()
+circos.clear()
+
+pathway_df<-sv_fmetab.sig.anno$Fecal_metabolite %>% unique %>% match(.,fmetab_info$fmetab_anno.name) %>%na.omit()%>%fmetab_info[.,c(5,24)]%>%table%>%as.data.frame
+
+
+p_sv_metabolites<-ggplot(pathway_df, aes(x=Super.pathway, y=Freq, group = IBD_associated, fill = IBD_associated))+
+  geom_bar(position = "stack",stat="identity")+
+  xlab("KEGG pathways")+
+  ylab("Number of SV associated metabolites")+
+  scale_y_continuous(expand = c(0,0))+
+  scale_fill_manual(name= "IBD-associated",
+                    breaks = c("Yes", "No"),
+                    labels = c("Yes", "No"),
+                    values = rev(mycolor2_green_blue))+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        plot.margin=unit(c(1,1,1,1),"cm"),
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position="top",
+        legend.key = element_rect(fill = NA), 
+        legend.text = element_text(size = 10),
+        panel.grid.major = element_line(colour = NA,linetype = "dashed",size = 0.25),
+        panel.grid.minor = element_line(colour = NA), 
+        panel.background = element_rect(fill = NA))
+
+pdf("09.Microbial_GWAS_fmetab/SV_pathway_IBD.pdf", height = 5, width = 5)
+print(p_sv_metabolites)
+dev.off()
+
+print(p_sv_metabolites)
+```

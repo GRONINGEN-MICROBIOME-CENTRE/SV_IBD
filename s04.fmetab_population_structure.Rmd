@@ -1,0 +1,173 @@
+---
+title: "Fecal metabolome population structure"
+author: "Daoming Wang"
+date: "2021/9/29"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+### 1.1 Import
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/all_phen.RData")
+```
+
+## 2 Fecal metabolome PCoA
+
+```{r 2,fig.height = 5, fig.width = 8}
+#all_fmetab_dis<-shared_sv_dis(all_fmetab)
+#save(all_fmetab_dis, file="01.cleanData/All/distMat/all_fmetab_dis.RData")
+load("01.cleanData/All/distMat/all_fmetab_dis.RData")
+
+all_fmetab_dis_mds<-cmdscale(all_fmetab_dis, k=5, eig = T)
+all_fmetab_pcoa <- data.frame(all_fmetab_dis_mds$points)
+all_phen$Cohort<-as.factor(all_phen$Cohort)
+
+p_fmetab_pcoa<-ggplot(all_fmetab_pcoa,aes(X1,X2, color = all_phen$Cohort))+
+  geom_point(size = 2,alpha = 0.5)+
+  stat_ellipse(aes(group = all_phen$Cohort, fill = all_phen$Cohort, color = all_phen$Cohort) ,type = "norm",linetype = 2,geom = "polygon",alpha = 0.05,show.legend = F)+
+  xlab(paste("PCo1=",round(all_fmetab_dis_mds$eig[1],digits = 2),"%",sep = ""))+
+  ylab(paste("PCo2=",round(all_fmetab_dis_mds$eig[2],digits = 2),"%",sep = ""))+
+  scale_color_manual(name=NULL, 
+                     breaks = c("LLD", "IBD"),
+                     labels = c("LLD", "IBD"),
+                     values = mycolor2_blue_red)+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        legend.position = 'bottom',
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA), 
+        panel.grid.major = element_line(colour = NA),
+        panel.grid.minor = element_line(colour = NA),
+        panel.background = element_rect(fill = NA))
+p_fmetab_pcoa<-ggExtra::ggMarginal(p_fmetab_pcoa, type = "histogram", groupColour = F, groupFill = TRUE,
+                                 xparams = list(bins = 60, alpha = 0.5,position = 'identity', color = 'white'),
+                                 yparams = list(bins = 60, alpha = 0.5,position = 'identity', color = 'white'))
+
+wilcox.test(all_fmetab_pcoa$X1~all_phen$Cohort)
+wilcox.test(all_fmetab_pcoa$X2~all_phen$Cohort)
+
+
+if(!dir.exists("04.fmetab_population_structure")){dir.create("04.fmetab_population_structure")}
+
+pdf("04.fmetab_population_structure/fecal_metabolome_PCoA.pdf", height = 5, width = 5)
+print(p_fmetab_pcoa)
+dev.off()
+
+print(p_fmetab_pcoa)
+```
+
+## 3 Effects of basic phenotypes
+
+### 3.1 PERMANOVA
+
+```{r 3.1, eval=FALSE}
+load("01.cleanData/All/distMat/all_fmetab_dis.RData")
+
+# fecal metabolome proportion variance
+demo_factors<-c('LC.COLUMN', "Amount_sample_gram", "metabolon_Month_in_freezer","host_Sex","host_Age","host_BMI","IBD")
+all_phen_fmetab_adonis.df<-as.data.frame(matrix(NA, nrow = length(demo_factors), ncol = 5))
+
+all_phen_rmna<-all_phen[,demo_factors]%>%na.omit
+
+phen_fmetab_rmna_inter<-intersect(rownames(all_fmetab_dis), rownames(all_phen_rmna))
+all_phen_fmetab_rmna<-all_phen[phen_fmetab_rmna_inter, demo_factors]
+all_fmetab_dis_rmna<-all_fmetab_dis[phen_fmetab_rmna_inter, phen_fmetab_rmna_inter]
+
+for (i in 1:length(demo_factors)) {
+  #i<-1
+  all_phen_fmetab.adonis.i<-adonis(as.dist(all_fmetab_dis_rmna)~.,
+                                  data = as.data.frame(all_phen_fmetab_rmna[,demo_factors[i]]))
+  
+  all_phen_fmetab_adonis.df[i,c(1:3)]<-c(demo_factors[i],
+                                        all_phen_fmetab.adonis.i$aov.tab$R2[1], 
+                                        all_phen_fmetab.adonis.i$aov.tab$`Pr(>F)`[1])
+}
+
+all_phen_fmetab.adonis.comb<-adonis(as.dist(all_fmetab_dis_rmna)~.,data = all_phen_fmetab_rmna[,demo_factors])
+all_phen_fmetab.adonis.comb.mat<-all_phen_fmetab.adonis.comb$aov.tab[c(1:length(demo_factors)),] %>%
+  .[match(demo_factors, rownames(.)),]
+
+all_phen_fmetab_adonis.df[,4]<-all_phen_fmetab.adonis.comb.mat$R2
+all_phen_fmetab_adonis.df[,5]<-all_phen_fmetab.adonis.comb.mat$`Pr(>F)`
+colnames(all_phen_fmetab_adonis.df)<-c("Factor", 
+                                      "Individual_R2", "Individual_p",
+                                      "Combined_R2", "Combined_p")
+all_phen_fmetab_adonis.df$Cumulative_R2<-cumsum(all_phen_fmetab_adonis.df$Combined_R2)
+write.table(all_phen_fmetab_adonis.df, "04.fmetab_population_structure/all_phen_fmetab_adonis.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+save(all_phen_fmetab_adonis.df, file = "04.fmetab_population_structure/all_phen_fmetab_adonis.df.RData")
+
+
+```
+
+
+### 3.2 Visualization
+
+```{r 3.2, fig.width = 4, fig.height = 6}
+load("04.fmetab_population_structure/all_phen_fmetab_adonis.df.RData")
+knitr::kable(all_phen_fmetab_adonis.df)
+
+all_phen_fmetab_adonis.df.long<-gather(all_phen_fmetab_adonis.df[,c(1,2,6)], 'R2', 'Value', -1)
+all_phen_fmetab_adonis.df.long$Value<-as.numeric(all_phen_fmetab_adonis.df.long$Value)
+all_phen_fmetab_adonis.df.long$R2 <- factor(all_phen_fmetab_adonis.df.long$R2, 
+                                           levels = c("Individual_R2", "Cumulative_R2"))
+
+p_all_phen_fmetab_adonis<-ggplot(all_phen_fmetab_adonis.df.long, aes(Factor, Value,group = R2))+
+  geom_bar(aes(fill = R2),position =position_dodge(),stat="identity")+
+  xlab(NULL)+
+  ylab(bquote("R"^2))+
+  scale_x_discrete(limits = demo_factors)+
+  scale_y_continuous(expand = c(0,0))+
+  scale_fill_manual(name=NULL,
+                    breaks = c("Individual_R2", "Cumulative_R2"),
+                    labels = c(bquote("Univariate R"^2),bquote("Cumulative R"^2) ),
+                    values = mycolor2_green_blue)+
+  theme(plot.subtitle = element_text(vjust = 1), 
+        plot.caption = element_text(vjust = 1), 
+        plot.margin=unit(c(2,1,1,3),"cm"),
+        axis.line.x =  element_line(),
+        axis.line.y = element_line(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position="top",
+        legend.key = element_rect(fill = NA), 
+        legend.text = element_text(size = 10),
+        panel.grid.major = element_line(colour = NA,linetype = "dashed",size = 0.25),
+        panel.grid.minor = element_line(colour = NA), 
+        panel.background = element_rect(fill = NA))
+
+
+pdf("04.fmetab_population_structure/fecal_metabolome_adonis_bar.pdf", width = 4, height = 4)
+print(p_all_phen_fmetab_adonis)
+dev.off()
+
+print(p_all_phen_fmetab_adonis)
+```

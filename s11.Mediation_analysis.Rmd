@@ -1,0 +1,306 @@
+---
+title: "Mediation analysis"
+author: "Daoming Wang"
+date: "2021/11/21"
+output:
+  html_document: 
+    theme: flatly
+    highlight: espresso
+    toc: true
+    toc_depth: 4
+    toc_float: true
+  word_document: default
+  pdf_document:
+    includes:
+      in_header: header.tex
+      keep_tex: yes
+      latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Preparation
+
+### 1.1 Import
+
+Import packages and functions.
+
+```{r 1.1, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+source("functions.R")
+```
+
+### 1.2 Inputs
+
+Read input files.
+
+```{r 1.2, echo=TRUE}
+load("01.cleanData/All/all_dsv.RData")
+load("01.cleanData/All/all_vsv.RData")
+load("01.cleanData/All/all_fmetab.RData")
+load("01.cleanData/All/all_phen.RData")
+load("01.cleanData/All/all_abun.RData")
+load("01.cleanData/All/msv_pc_cum0.6.RData")
+
+
+info    <- read.table("01.cleanData/Info/Informative_species_information.tsv",
+                      sep = "\t", header = T, stringsAsFactors = F)
+vsv_info<-read.table("01.cleanData/Info/vsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F, quote = "")
+dsv_info<-read.table("01.cleanData/Info/dsgv_info_anno.tsv",
+                     sep = "\t",header = T,stringsAsFactors = F,quote = "")
+fmetab_info<-read.csv("01.cleanData/Info/fmetab_info_addIBD.tsv", sep = "\t",header = T, check.names = F,quote = "")
+phen_info<-read.csv("01.cleanData/Info/phenotype_info.tsv", sep = "\t",header = T, check.names = F,quote = "")
+```
+
+### 1.3 Preparation
+
+```{r 1.3}
+if (!dir.exists("11.Mediation_analysis")) {dir.create("11.Mediation_analysis")}
+if (!dir.exists("11.Mediation_analysis/RData")) {dir.create("11.Mediation_analysis/RData")}
+
+# ibd
+all_abun_clr<-abundances(x=as.data.frame(na.omit(all_abun)), transform="clr") %>% as.data.frame
+all_abun_clr <- all_abun_clr[match(rownames(all_abun), rownames(all_abun_clr)),]
+rownames(all_abun_clr) <- rownames(all_abun)
+all_covar<-cbind(all_phen,all_abun_clr)
+
+covar <- c("LC.COLUMN", "Amount_sample_gram", "metabolon_Month_in_freezer","host_Sex", "host_Age", "host_BMI", "Read_count")
+```
+
+
+## 2 Get candidate groups
+
+### 2.1 Associations between IBD and exposure
+
+```{r 2.1}
+all_exp<-all_phen[,phen_info$Phenotype[phen_info$Class == "Smoking"|phen_info$Class == "Medicine"|phen_info$Class == "Diet"]]
+
+all_disease_exp_lr_res<-lr_btw_mats(as.data.frame(all_phen[,c("IBD")]),all_exp,  all_covar, covar)
+all_disease_exp_lr_res$Y<-"IBD"
+
+
+all_disease_exp_lr.sig<-all_disease_exp_lr_res[all_disease_exp_lr_res$fdr.p<0.05 & (!is.na(all_disease_exp_lr_res$p)),]
+write.table(all_disease_exp_lr.sig,"11.Mediation_analysis/all_disease_exp_lr.sig.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+
+all_exp.sig<-all_exp[,all_disease_exp_lr.sig$X]
+```
+
+### 2.2 Associations between IBD and SV
+
+```{r 2.2}
+vsv_disease.sig.anno<-read.csv("08.Microbial_GWAS_IBD/vsv_disease.sig.anno.tsv", sep = "\t", header = T, check.names = F,quote = "")
+dsv_disease.sig.anno<-read.csv("08.Microbial_GWAS_IBD/dsv_disease.sig.anno.tsv", sep = "\t", header = T, check.names = F,quote = "")
+
+all_vsv.sig<-all_vsv[,unique(vsv_disease.sig.anno$SV_Name)]
+all_dsv.sig<-all_dsv[,unique(dsv_disease.sig.anno$SV_Name)]
+
+all_sv.sig<-cbind(all_vsv.sig, all_dsv.sig)
+```
+
+### 2.3 Associations between IBD and fecal metabolites
+
+```{r 2.3}
+vsv_disease.sig.anno<-read.csv("06.Species_level_assoc/all_disease_fmetab_lm.sig.tsv", sep = "\t", header = T, check.names = F,quote = "")
+
+all_fmetab.sig<-all_fmetab[,unique(vsv_disease.sig.anno$Y)]
+```
+
+### 2.4 Associations between exposure and SV
+
+```{r 2.4}
+#exp_vsv_lm_res  <- lm_btw_mats_adjAbun2(all_vsv.sig, all_exp.sig, all_covar, covar, all_abun_clr, info, 9)
+#save(exp_vsv_lm_res,file = "11.Mediation_analysis/RData/exp_vsv_lm_res.RData")
+load("11.Mediation_analysis/RData/exp_vsv_lm_res.RData")
+
+#exp_dsv_lm_res  <- lr_btw_mats_adjAbun2(all_dsv.sig, all_exp.sig, all_covar, covar, all_abun_clr, info, 9)
+#save(exp_dsv_lm_res,file = "11.Mediation_analysis/RData/exp_dsv_lm_res.RData")
+load("11.Mediation_analysis/RData/exp_dsv_lm_res.RData")
+
+exp_sv_lm_res<-rbind(exp_vsv_lm_res[,c(1,2,5)], exp_dsv_lm_res[,c(1,2,5)])
+
+
+```
+
+### 2.5 Associations between exposure and fecal metabolites
+
+```{r 2.5}
+
+#exp_fmetab_lm_res  <- lm_btw_mats(all_fmetab.sig, all_exp.sig, all_covar, covar)
+#save(exp_fmetab_lm_res,file = "11.Mediation_analysis/RData/exp_fmetab_lm_res.RData")
+load("11.Mediation_analysis/RData/exp_fmetab_lm_res.RData")
+
+exp_fmetab_lm.sig<-exp_fmetab_lm_res[exp_fmetab_lm_res$fdr.p<0.05 & (!is.na(exp_fmetab_lm_res$fdr.p)),]
+write.table(exp_fmetab_lm.sig, "11.Mediation_analysis/exp_fmetab_lm.sig.tsv",sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+### 2.6 Associations between SV and fecal metabolites
+
+```{r 2.6}
+load("09.Microbial_GWAS_fmetab/vsv_fmetab.sig.anno.RData")
+load("09.Microbial_GWAS_fmetab/dsv_fmetab.sig.anno.RData")
+
+sv_fmetab.sig.anno<-rbind(vsv_fmetab.sig.anno, dsv_fmetab.sig.anno)
+
+```
+
+### 2.7 Candidate groups
+
+```{r 3, eval=F}
+exp_id <- colnames(all_exp.sig)
+
+dsv_id <-dsv_fmetab.sig.anno$SV %>%
+  as.character(.) %>%
+  .[!duplicated(.)] %>%
+  sort(.,decreasing = F)
+vsv_id <-vsv_fmetab.sig.anno$SV %>%
+  as.character(.) %>%
+  .[!duplicated(.)] %>%
+  sort(.,decreasing = F)
+sv_id<-c(vsv_id, dsv_id)
+sv_id<-intersect(sv_id, colnames(all_sv.sig))
+
+fmetab_id  <- sv_fmetab.sig.anno$Fecal_metabolite %>%
+  as.character(.) %>%
+  .[!duplicated(.)]
+
+fmetab_id<-intersect(fmetab_id, colnames(all_fmetab.sig))
+
+exp_sv_fmetab_df <- NULL
+
+for (i in exp_id) {
+  cat(paste(i,"\n"))
+  for (j in sv_id) {
+    for (k in fmetab_id) {
+#      i<- "med_anti_histamine"#exp_id[1]
+#      j<- "Collinsella sp. 4_8_47FAA:1003_1005;1935_1937"# sv_id[1]
+#      k<- "N1_+_N8_acetylspermidine"# fmetab_id[1]
+      
+      p_sv_exp     <- exp_sv_lm_res$p[exp_sv_lm_res$Y==j & exp_sv_lm_res$X==i]
+      p_fmetab_exp <- exp_fmetab_lm_res$p[ exp_fmetab_lm_res$X==i & exp_fmetab_lm_res$Y ==k]
+      p_fmetab_sv  <- sv_fmetab.sig.anno$Model1.Meta.p[sv_fmetab.sig.anno$SV==j & sv_fmetab.sig.anno$Fecal_metabolite==k]
+      
+      if(length(p_fmetab_sv) > 0 & length(p_sv_exp) > 0  & length(p_fmetab_exp) > 0 ){
+        if(!is.na(p_fmetab_sv) & !is.na(p_sv_exp)  & !is.na(p_fmetab_exp)){
+          if(p_sv_exp<0.05 & p_fmetab_exp<0.05 & p_fmetab_sv<0.05){
+            exp_sv_fmetab_df <- rbind(exp_sv_fmetab_df,c(i, j, k))
+            }
+          }
+        }
+    }
+  }
+}
+
+save(exp_sv_fmetab_df,file = "11.Mediation_analysis/RData/exp_sv_fmetab_df.RData")
+if (!dir.exists("11.Mediation_analysis/")) {dir.create("11.Mediation_analysis/")}
+write.table(exp_sv_fmetab_df, "11.Mediation_analysis/exp_sv_fmetab_df.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+## 3 Serial mediation analysis
+
+```{r 3}
+load("11.Mediation_analysis/RData/exp_sv_fmetab_df.RData")
+exp_sv_fmetab_df<-cbind(exp_sv_fmetab_df, rep("IBD", nrow(exp_sv_fmetab_df)))
+
+covar_abun<-str_replace_all(exp_sv_fmetab_df[,2],"\\:\\d+_\\d+.*","") 
+exp_sv_fmetab_df<-cbind(exp_sv_fmetab_df, covar_abun)
+
+date() # "Wed Nov 11 21:46:05 2020"
+sv_mediation_res<-NULL
+for (i in 1:nrow(exp_sv_fmetab_df)) {
+#  i<-100
+  cat(paste(i,"\n"))
+  res_i<-serial_mediation(exp_sv_fmetab_df[i,],
+                        iv_Df=all_exp.sig, 
+                        m1_Df=all_sv.sig, 
+                        m2_Df=all_fmetab.sig, 
+                        dv_Df=all_phen,
+                        covDf=all_covar, 
+                        covar=covar)
+  
+  sv_mediation_res[[i]]<-res_i
+}
+date()
+
+
+mediation_df <- matrix(unlist(sv_mediation_res), ncol = 10, byrow = T) %>% as.data.frame
+colnames(mediation_df)<-c("iv", "m1", "m2", "dv", 
+                          "indirect_effect.est", "indirect_effect.se", "indirect_effect.p",
+                          "direct_effect.est", "direct_effect.se", "direct_effect.p" )
+
+mediation_df$indirect_effect.p<-as.numeric(mediation_df$indirect_effect.p)
+mediation_df$indirect_effect.est<-as.numeric(mediation_df$indirect_effect.est)
+mediation_df$indirect_effect.se<-as.numeric(mediation_df$indirect_effect.se)
+mediation_df$indirect_effect.fdr.p<-p.adjust(mediation_df$indirect_effect.p)
+
+save(mediation_df, file = "11.Mediation_analysis/RData/mediation_df.RData")
+write.table(mediation_df,"11.Mediation_analysis/mediation_df.tsv",
+            sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+## 4 Summary results
+```{r 4}
+load("11.Mediation_analysis/RData/mediation_df.RData")
+mediation_sig<-mediation_df %>% .[.$indirect_effect.p < 0.01,]
+
+## diet
+mediation_sig_diet<-grep("diet_", mediation_sig$iv) %>% mediation_sig[.,]
+
+mediation_sig_diet$fre<-1
+sankey_colors<-c(wes_palette("Darjeeling1", length(unique(mediation_sig_diet$m2)), type = "continuous"))
+
+#mediation_sig_diet$indv<-factor(mediation_sig_diet$indv, levels = c("fruits", "pasta" , "sugar_sweets","how_often_breakfast", "how_often_fruits","how_often_fish"  ,"how_often_alcohol" ,           "red_wine",                     "white_wine"        ,"how_often_muesli"  ,           "how_often_boiled_potatos"   ,  "how_often_soda","how_often_chocolade",   "how_often_nuts" ,           "smk_current","beta_sympathomimetic_inhaler" ,"oral_contraceptive"   ,        "how_often_pizza" ))
+
+pdf("11.Mediation_analysis/mediation_diet.sankey.pdf",width = 7,height = 5)
+ggplot(mediation_sig_diet,aes(axis1 = mediation_sig_diet$iv, 
+                               axis2 = mediation_sig_diet$m1, 
+                               axis3 = mediation_sig_diet$m2,
+                              axis4 = mediation_sig_diet$dv,
+                               y= mediation_sig_diet$fre))+
+  scale_x_discrete(limits = c("Lifestyle factors", "SVs", "Metabolites", "IBD")) +
+  geom_alluvium(aes(fill = mediation_sig_diet$m2),alpha = .6)+
+  geom_stratum(alpha = 0,color = adjustcolor( "white", alpha.f = 1),size=0.5)+
+  geom_text(stat = "stratum",cex=2,aes(label = after_stat(stratum))) +
+  scale_color_manual(values=sankey_colors)+
+  scale_fill_manual(values=sankey_colors)+
+  theme_minimal()+
+  theme(legend.position="none",
+        axis.text = element_text(size = 10),
+        axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid=element_blank())
+dev.off()
+
+
+## medication
+mediation_sig_med<-grep("med_", mediation_sig$iv) %>% mediation_sig[.,]
+
+mediation_sig_med$fre<-1
+sankey_colors<-c(wes_palette("Darjeeling1", length(unique(mediation_sig_med$m2)), type = "continuous"))
+
+#mediation_sig_med$indv<-factor(mediation_sig_med$indv, levels = c("fruits", "pasta" , "sugar_sweets","how_often_breakfast", "how_often_fruits","how_often_fish"  ,"how_often_alcohol" ,           "red_wine",                     "white_wine"        ,"how_often_muesli"  ,           "how_often_boiled_potatos"   ,  "how_often_soda","how_often_chocolade",   "how_often_nuts" ,           "smk_current","beta_sympathomimetic_inhaler" ,"oral_contraceptive"   ,        "how_often_pizza" ))
+
+pdf("11.Mediation_analysis/mediation_med.sankey.pdf",width = 7,height = 3.5)
+ggplot(mediation_sig_med,aes(axis1 = mediation_sig_med$iv, 
+                               axis2 = mediation_sig_med$m1, 
+                               axis3 = mediation_sig_med$m2,
+                              axis4 = mediation_sig_med$dv,
+                               y= mediation_sig_med$fre))+
+  scale_x_discrete(limits = c("Lifestyle factors", "SVs", "Metabolites", "IBD")) +
+  geom_alluvium(aes(fill = mediation_sig_med$m2),alpha = .6)+
+  geom_stratum(alpha = 0,color = adjustcolor( "white", alpha.f = 1),size=0.5)+
+  geom_text(stat = "stratum",cex=2,aes(label = after_stat(stratum))) +
+  scale_color_manual(values=sankey_colors)+
+  scale_fill_manual(values=sankey_colors)+
+  theme_minimal()+
+  theme(legend.position="none",
+        axis.text = element_text(size = 10),
+        axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid=element_blank())
+dev.off()
+
+
+```
